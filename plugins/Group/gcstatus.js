@@ -1,69 +1,62 @@
 import { getPrefix } from '../../lib/config.js';
-import { getGroupMetadata, isOwner } from '../../lib/utils.js';
+import { buildLinkPreview } from '../../lib/linkPreview.js';
 
 export default {
     command: 'gcstatus',
     aliases: ['groupstatus', 'statusgc'],
     description: 'Send a status update to the current group',
-    category: 'Group',
+    category: 'Owner',
     ownerOnly: true,
     usage: 'gcstatus <text> OR reply to media',
 
     async execute(sock, m, args, ctx) {
-        const prefix = getPrefix();
-
-        // Ensure it's a group chat
         if (!m.key.remoteJid.endsWith('@g.us')) {
             return ctx.reply('❌ *Error*\n\nThis command only works in groups.');
         }
 
-        // Check if text is provided OR user is replying to media
         if (!args[0] && !ctx.quoted) {
-            return ctx.reply(`👥 *Group Status*\n\n*Usage:*\n1. \`${prefix}gcstatus <text>\`\n2. Reply to an image/video with \`${prefix}gcstatus\``);
+            return ctx.reply(`👥 *Group Status*\n\n*Usage:*\n1. \`.gcstatus <text>\`\n2. Reply to media with \`.gcstatus\``);
         }
 
+        const text = args.join(' ');
+        const media = ctx.quoted ? await ctx.getMedia() : null;
+
         try {
-            // If there is a quoted message (media)
-            if (ctx.quoted) {
-                const media = await ctx.getMedia();
-                if (!media) {
-                    return ctx.reply('❌ Failed to download the replied media.');
-                }
+            // Check for URL to build a preview
+            const urlRegex = /(https?:\/\/[^\s]+)/g;
+            const urls = text.match(urlRegex);
+            let linkPreview = null;
 
-                const caption = args.join(' ') || ctx.quoted.text || '';
-
-                if (media.isImage) {
-                    await sock.sendMessage(m.key.remoteJid, {
-                        image: media.buffer,
-                        caption: caption,
-                        groupStatus: true // 👈 Official Baileys flag
-                    });
-                } else if (media.isVideo) {
-                    await sock.sendMessage(m.key.remoteJid, {
-                        video: media.buffer,
-                        caption: caption,
-                        groupStatus: true // 👈 Official Baileys flag
-                    });
-                } else if (media.isAudio) {
-                    await sock.sendMessage(m.key.remoteJid, {
-                        audio: media.buffer,
-                        mimetype: 'audio/mp4',
-                        ptt: true,
-                        groupStatus: true // 👈 Official Baileys flag
-                    });
-                } else {
-                    return ctx.reply('❌ Unsupported media type. Please reply to an image, video, or audio.');
-                }
-
-            } else {
-                // If it's just text
-                const text = args.join(' ');
-                await sock.sendMessage(m.key.remoteJid, {
-                    text: text,
-                    groupStatus: true // 👈 Official Baileys flag
-                });
+            if (urls && urls.length > 0) {
+                linkPreview = await buildLinkPreview(urls[0]);
             }
 
+            if (media) {
+                if (media.isImage) {
+                    await sock.sendMessage(m.key.remoteJid, { image: media.buffer, caption: text, groupStatus: true });
+                } else if (media.isVideo) {
+                    await sock.sendMessage(m.key.remoteJid, { video: media.buffer, caption: text, groupStatus: true });
+                } else if (media.isAudio) {
+                    await sock.sendMessage(m.key.remoteJid, { audio: media.buffer, mimetype: 'audio/mp4', ptt: true, groupStatus: true });
+                } else {
+                    return ctx.reply('❌ Unsupported media type.');
+                }
+                await ctx.reply('✅ *Status uploaded successfully!*');
+
+            } else {
+                // Send text with link preview if available
+                const payload = { 
+                    text: text,
+                    groupStatus: true 
+                };
+                
+                if (linkPreview) {
+                    payload.linkPreview = linkPreview;
+                }
+
+                await sock.sendMessage(m.key.remoteJid, payload);
+                await ctx.reply('✅ *Status uploaded successfully!*');
+            }
         } catch (err) {
             console.error('GCStatus error:', err);
             await ctx.reply(`❌ *Error*\n\nFailed to send group status.\n_Error: ${err.message}_`);
