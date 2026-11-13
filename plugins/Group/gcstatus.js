@@ -5,7 +5,7 @@ export default {
     command: 'gcstatus',
     aliases: ['groupstatus', 'statusgc'],
     description: 'Send a status update to the current group',
-    category: 'Owner',
+    category: 'Group',
     ownerOnly: true,
     usage: 'gcstatus <text> OR reply to a message',
 
