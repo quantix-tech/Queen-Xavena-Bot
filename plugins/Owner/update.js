@@ -49,7 +49,6 @@ export default {
                 extractedCount++;
             });
 
-            await ctx.reply(`✅ *Files Extracted!*\n\nExtracted ${extractedCount} files.\n⏳ *Installing dependencies...*`);
 
             // 3. Run npm install to grab any new packages
             try {
