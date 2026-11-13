@@ -1,0 +1,16 @@
+# Dependencies
+node_modules/
+
+# Secrets and runtime state
+.env
+.env.*
+!.env.example
+session/
+session_id.txt  
+database/
+
+# Logs and temp
+*.log
+npm-debug.log*
+.DS_Store
+restart.txt     
