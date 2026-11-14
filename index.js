@@ -69,11 +69,10 @@ async function start() {
         try {
             const chatJid = fs.readFileSync(restartFlag, 'utf-8').trim();
             if (chatJid) {
-                // Wait 15 seconds for WhatsApp to fully connect, then send the message
                 setTimeout(async () => {
                     try {
                         await sock.sendMessage(chatJid, { 
-                            text: '✅ *Update Successful!*\n\nThe bot has successfully rebooted with the latest code from GitHub.\n\n> Powered by Lord Xaven' 
+                            text: '✅ *Update Successful!*\n\nThe bot has successfully rebooted with the latest code from GitHub.\n\n> Powered by Queen Xavena' 
                         });
                         console.log('[update] Success message sent.');
                     } catch (e) {
@@ -81,10 +80,8 @@ async function start() {
                     }
                 }, 15000);
             }
-            fs.unlinkSync(restartFlag); // Delete the flag immediately so it doesn't trigger again
-        } catch (e) {
-            console.error('[update] Error reading restart.txt:', e.message);
-        }
+            fs.unlinkSync(restartFlag); 
+        } catch (e) {}
     }
     // ─── END UPDATE FLAG CHECK ───
 
@@ -231,11 +228,15 @@ async function handleMessage(m) {
     // ─── AI ROUTING (No Prefix) ───
     if (!rawText.startsWith(currentPrefix) && rawText.trim()) {
         
-if (m.key.fromMe) return;
+        // Prevent the bot from replying to itself or the owner typing from the bot's phone
+        if (m.key.fromMe) return; 
 
-        const isNlpTrigger = rawText.toLowerCase().includes('xavena');
+        // Case-insensitive NLP trigger
+        const isNlpTrigger = /\bxavena\b/i.test(rawText); 
+        
         if (getNlpMode() && isNlpTrigger) {
-            const cleanText = rawText.replace(/xavena/gi, '').trim();
+            // Remove "xavena" (any casing) and strip leading/trailing punctuation
+            const cleanText = rawText.replace(/\bxavena\b/gi, '').replace(/^[,.\s]+|[,.\s]+$/g, '').trim();
             
             if (cleanText) {
                 if (getMode() === 'private') {
@@ -251,7 +252,9 @@ if (m.key.fromMe) return;
                     
                     const ctx = await buildContext(sock, m);
                     if (ctx) {
-                        ctx.text = `${currentPrefix}${intent.command} ${intent.args.join(' ')}`;
+                        const intentArgs = Array.isArray(intent.args) ? intent.args.join(' ') : '';
+                        ctx.text = `${currentPrefix}${intent.command} ${intentArgs}`.trim();
+                        
                         const [cmdRaw, ...args] = ctx.text.slice(currentPrefix.length).trim().split(/\s+/);
                         
                         const check = await canUse(m, plugin, sock);
@@ -346,11 +349,20 @@ if (m.key.fromMe) return;
     const plugin = pluginMap.get(cmd);
     if (!plugin) return;
 
-    const check = await canUse(m, plugin, sock);
-    if (!check.ok) {
-        if (check.reason === 'owner_only') await ctx.reply('🔒 Owner only.');
+    // ─── EXPLICIT MODE & ROLE CHECK ───
+    const currentMode = getMode();
+    const userIsOwner = await isOwner(m, sock);
+    const userIsSudo = await isSudo(m, sock);
+
+    if (currentMode === 'private' && !userIsOwner && !userIsSudo) {
+        return; // Silently ignore non-owners in private mode
+    }
+
+    if (plugin.ownerOnly && !userIsOwner) {
+        await ctx.reply('🔒 Owner only.');
         return;
     }
+    // ─── END EXPLICIT CHECK ───
 
     ctx.pluginMap = pluginMap;
 
