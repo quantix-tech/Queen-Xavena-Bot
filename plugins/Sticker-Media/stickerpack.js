@@ -1,4 +1,4 @@
-import pinterestScraper from 'pinterest-scraper-api';
+import Pinterest from 'pinterest-media-downloader';
 import sharp from 'sharp';
 import axios from 'axios';
 import { getPrefix } from '../../lib/config.js';
@@ -21,11 +21,11 @@ export default {
         await ctx.reply(`🔍 *Searching Pinterest for:* ${query}...`);
 
         try {
-            // 1. Search Pinterest using the scraper
-            // The library expects (query, limit)
-            const searchResults = await pinterestScraper.searchPinterest(query, 30); 
+            // 1. Search Pinterest using the library
+            // The search method returns an array of pin objects
+            const searchResults = await Pinterest.search(query, { limit: 30 });
             
-            if (!Array.isArray(searchResults) || searchResults.length === 0) {
+            if (!searchResults || searchResults.length === 0) {
                 return ctx.reply(`❌ *Not Found*\n\nNo Pinterest images found for: ${query}`);
             }
 
@@ -35,15 +35,22 @@ export default {
             await ctx.reply(`⏳ *Processing ${imagesToProcess.length} images into stickers...*`);
 
             for (let i = 0; i < imagesToProcess.length; i++) {
-                const imgUrl = imagesToProcess[i].imageUrl; // This library uses imageUrl
+                const pin = imagesToProcess[i];
+                // The library usually returns images in a property like 'images' or 'image'
+                let imgUrl = pin.images?.['736x']?.url || pin.image || pin.imageUrl;
                 
+                // If it's an object with different sizes, try to grab the largest one
+                if (!imgUrl && pin.images) {
+                    const sizes = Object.values(pin.images);
+                    if (sizes.length > 0 && sizes[0].url) imgUrl = sizes[0].url;
+                }
+
                 if (!imgUrl) continue;
 
                 try {
-                    // Download image
                     const imgBuffer = await axios.get(imgUrl, { responseType: 'arraybuffer', timeout: 15000 }).then(r => r.data);
                     
-                    // Convert to WebP sticker format (512x512) using sharp
+                    // Convert to WebP sticker (512x512)
                     const webpBuffer = await sharp(Buffer.from(imgBuffer))
                         .resize(512, 512, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
                         .webp({ quality: 80 })
