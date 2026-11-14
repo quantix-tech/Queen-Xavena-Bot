@@ -231,6 +231,8 @@ async function handleMessage(m) {
     // ─── AI ROUTING (No Prefix) ───
     if (!rawText.startsWith(currentPrefix) && rawText.trim()) {
         
+if (m.key.fromMe) return;
+
         const isNlpTrigger = rawText.toLowerCase().includes('xavena');
         if (getNlpMode() && isNlpTrigger) {
             const cleanText = rawText.replace(/xavena/gi, '').trim();
