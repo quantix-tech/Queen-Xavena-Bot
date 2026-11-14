@@ -21,11 +21,7 @@ export default {
         await ctx.reply(`🔍 *Searching Pinterest for:* ${query}...`);
 
         try {
-            // 1. Search Pinterest using the library
-            // The function returns an object: { pins, bookmark }
             const searchResult = await search(query, { limit: 30 });
-            
-            // 2. Extract the pins array from the result
             const pins = searchResult.pins;
 
             if (!pins || pins.length === 0) {
@@ -39,8 +35,6 @@ export default {
 
             for (let i = 0; i < imagesToProcess.length; i++) {
                 const pin = imagesToProcess[i];
-                
-                // The library documentation specifies the image URL is in pin.images.original
                 const imgUrl = pin.images?.original;
 
                 if (!imgUrl) continue;
@@ -48,13 +42,13 @@ export default {
                 try {
                     const imgBuffer = await axios.get(imgUrl, { responseType: 'arraybuffer', timeout: 15000 }).then(r => r.data);
                     
-                    // Convert to WebP sticker (512x512)
                     const webpBuffer = await sharp(Buffer.from(imgBuffer))
                         .resize(512, 512, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
                         .webp({ quality: 80 })
                         .toBuffer();
 
-                    stickers.push({ data: webpBuffer });
+                    // 👇 FIX: Pass the buffer directly instead of { data: buffer }
+                    stickers.push(webpBuffer); 
                 } catch (err) {
                     console.error(`Failed to process image ${i}:`, err.message);
                 }
@@ -66,11 +60,12 @@ export default {
 
             await ctx.reply(`📦 *Sending Sticker Pack with ${stickers.length} stickers...*`);
 
-            const coverBuffer = stickers[0].data;
+            // 👇 The cover also needs to be a buffer directly
+            const coverBuffer = stickers[0];
 
             await sock.sendMessage(m.key.remoteJid, {
-                cover: { url: Buffer.from(coverBuffer).toString('base64') }, 
-                stickers: stickers,
+                cover: coverBuffer, // 👈 Direct buffer
+                stickers: stickers, // 👈 Array of direct buffers
                 name: 'Queen Xavena',
                 publisher: 'Lord Xaven',
                 description: `Pack of ${stickers.length} stickers for "${query}"`
