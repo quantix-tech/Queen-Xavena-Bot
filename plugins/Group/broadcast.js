@@ -1,5 +1,4 @@
-import { getPrefix } from '../../lib/config.js';
-import { buildLinkPreview } from '../../lib/linkPreview.js';
+import { buildLinkPreview, getChannelContext, getRandomStatusColor } from '../../lib/linkPreview.js';
 
 export default {
     command: 'broadcast',
@@ -10,10 +9,8 @@ export default {
     usage: 'broadcast <message> OR reply to media',
 
     async execute(sock, m, args, ctx) {
-        const prefix = getPrefix();
-        
         if (!args[0] && !ctx.quoted) {
-            return ctx.reply(`📢 *Broadcast Status*\n\n*Usage:*\n1. \`${prefix}broadcast <message>\`\n2. Reply to an image/video with \`${prefix}broadcast <caption>\``);
+            return ctx.reply(`📢 *Broadcast Status*\n\n*Usage:*\n1. \`.broadcast <message>\`\n2. Reply to an image/video with \`.broadcast <caption>\``);
         }
 
         await ctx.reply(`📢 *Broadcast Initiated*\nFetching groups...`);
@@ -22,20 +19,15 @@ export default {
             const groups = await sock.groupFetchAllParticipating();
             const groupIds = Object.keys(groups);
             
-            if (groupIds.length === 0) {
-                return ctx.reply('❌ The bot is not in any groups.');
-            }
+            if (groupIds.length === 0) return ctx.reply('❌ The bot is not in any groups.');
 
             const text = args.join(' ');
             const media = ctx.quoted ? await ctx.getMedia() : null;
+            const contextInfo = getChannelContext();
             
-            // Check for URL to build a preview silently
             let linkPreview = null;
-            const urlRegex = /(https?:\/\/[^\s]+)/g;
-            const urls = text.match(urlRegex);
-
+            const urls = text.match(/(https?:\/\/[^\s]+)/g);
             if (urls && urls.length > 0) {
-                // Log silently to console instead of replying to chat
                 console.log(`[broadcast] Link detected, building preview silently...`);
                 linkPreview = await buildLinkPreview(urls[0]);
             }
@@ -47,26 +39,20 @@ export default {
 
             for (const groupId of groupIds) {
                 try {
+                    const randomColor = getRandomStatusColor();
+
                     if (media && media.isImage) {
-                        await sock.sendMessage(groupId, { 
-                            image: media.buffer, 
-                            caption: text, 
-                            groupStatus: true 
-                        });
+                        await sock.sendMessage(groupId, { image: media.buffer, caption: text, groupStatus: true, contextInfo });
                     } else if (media && media.isVideo) {
-                        await sock.sendMessage(groupId, { 
-                            video: media.buffer, 
-                            caption: text, 
-                            groupStatus: true 
-                        });
+                        await sock.sendMessage(groupId, { video: media.buffer, caption: text, groupStatus: true, contextInfo });
                     } else {
                         const payload = { 
-                            text: text,
-                            groupStatus: true
+                            text: text, 
+                            groupStatus: true, 
+                            contextInfo,
+                            backgroundColor: randomColor
                         };
-                        if (linkPreview) {
-                            payload.linkPreview = linkPreview;
-                        }
+                        if (linkPreview) payload.linkPreview = linkPreview;
                         await sock.sendMessage(groupId, payload);
                     }
                     success++;
@@ -74,8 +60,7 @@ export default {
                     failed++;
                     console.error(`Failed to broadcast status to ${groupId}:`, err.message);
                 }
-                
-                // Delay to prevent WhatsApp ban (3 seconds per group)
+                // Delay to prevent ban
                 await new Promise(r => setTimeout(r, 3000));
             }
 
