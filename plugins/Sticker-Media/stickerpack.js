@@ -1,6 +1,9 @@
 import { search } from 'pinterest-media-downloader';
 import sharp from 'sharp';
 import axios from 'axios';
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
 import { getPrefix } from '../../lib/config.js';
 
 export default {
@@ -20,18 +23,21 @@ export default {
 
         await ctx.reply(`🔍 *Searching Pinterest for:* ${query}...`);
 
+        const tempDir = path.join(os.tmpdir(), `xavena_pack_${Date.now()}`);
+        fs.mkdirSync(tempDir, { recursive: true });
+
         try {
             const searchResult = await search(query, { limit: 30 });
             const pins = searchResult.pins;
 
             if (!pins || pins.length === 0) {
-                return ctx.reply(`❌ *Not Found*\n\nNo Pinterest images found for: ${query}`);
+                throw new Error('No Pinterest images found.');
             }
 
             const imagesToProcess = pins.slice(0, 30);
-            const stickers = [];
+            const stickerPaths = [];
 
-            await ctx.reply(`⏳ *Processing ${imagesToProcess.length} images into stickers...*`);
+            await ctx.reply(`⏳ *Processing ${imagesToProcess.length} images...*`);
 
             for (let i = 0; i < imagesToProcess.length; i++) {
                 const pin = imagesToProcess[i];
@@ -47,33 +53,42 @@ export default {
                         .webp({ quality: 80 })
                         .toBuffer();
 
-                    // 👇 FIX: Pass the buffer directly instead of { data: buffer }
-                    stickers.push(webpBuffer); 
+                    // Save to temp file
+                    const filePath = path.join(tempDir, `sticker_${i}.webp`);
+                    fs.writeFileSync(filePath, webpBuffer);
+                    stickerPaths.push(filePath);
+
                 } catch (err) {
                     console.error(`Failed to process image ${i}:`, err.message);
                 }
             }
 
-            if (stickers.length === 0) {
+            if (stickerPaths.length === 0) {
                 throw new Error('Could not process any images into stickers.');
             }
 
-            await ctx.reply(`📦 *Sending Sticker Pack with ${stickers.length} stickers...*`);
+            await ctx.reply(`📦 *Sending Sticker Pack with ${stickerPaths.length} stickers...*`);
 
-            // 👇 The cover also needs to be a buffer directly
-            const coverBuffer = stickers[0];
+            // Pass paths as expected by Baileys native file reader
+            const coverPath = stickerPaths[0];
+            const stickersArray = stickerPaths.map(p => ({ data: { url: p } }));
 
             await sock.sendMessage(m.key.remoteJid, {
-                cover: coverBuffer, // 👈 Direct buffer
-                stickers: stickers, // 👈 Array of direct buffers
+                cover: { url: coverPath },
+                stickers: stickersArray,
                 name: 'Queen Xavena',
                 publisher: 'Lord Xaven',
-                description: `Pack of ${stickers.length} stickers for "${query}"`
+                description: `Pack of ${stickerPaths.length} stickers for "${query}"`
             }, { quoted: m });
 
         } catch (err) {
             console.error('Stickerpack error:', err);
             await ctx.reply(`❌ *Failed to create sticker pack.*\n_Error: ${err.message}_`);
+        } finally {
+            // Clean up temporary files
+            try {
+                fs.rmSync(tempDir, { recursive: true, force: true });
+            } catch (e) {}
         }
     }
 };
