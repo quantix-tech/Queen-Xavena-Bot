@@ -1,4 +1,4 @@
-import Pinterest from 'pinterest-media-downloader';
+import { search } from 'pinterest-media-downloader';
 import sharp from 'sharp';
 import axios from 'axios';
 import { getPrefix } from '../../lib/config.js';
@@ -22,28 +22,26 @@ export default {
 
         try {
             // 1. Search Pinterest using the library
-            // The search method returns an array of pin objects
-            const searchResults = await Pinterest.search(query, { limit: 30 });
+            // The function returns an object: { pins, bookmark }
+            const searchResult = await search(query, { limit: 30 });
             
-            if (!searchResults || searchResults.length === 0) {
+            // 2. Extract the pins array from the result
+            const pins = searchResult.pins;
+
+            if (!pins || pins.length === 0) {
                 return ctx.reply(`❌ *Not Found*\n\nNo Pinterest images found for: ${query}`);
             }
 
-            const imagesToProcess = searchResults.slice(0, 30);
+            const imagesToProcess = pins.slice(0, 30);
             const stickers = [];
 
             await ctx.reply(`⏳ *Processing ${imagesToProcess.length} images into stickers...*`);
 
             for (let i = 0; i < imagesToProcess.length; i++) {
                 const pin = imagesToProcess[i];
-                // The library usually returns images in a property like 'images' or 'image'
-                let imgUrl = pin.images?.['736x']?.url || pin.image || pin.imageUrl;
                 
-                // If it's an object with different sizes, try to grab the largest one
-                if (!imgUrl && pin.images) {
-                    const sizes = Object.values(pin.images);
-                    if (sizes.length > 0 && sizes[0].url) imgUrl = sizes[0].url;
-                }
+                // The library documentation specifies the image URL is in pin.images.original
+                const imgUrl = pin.images?.original;
 
                 if (!imgUrl) continue;
 
