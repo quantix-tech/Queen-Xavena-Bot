@@ -73,7 +73,7 @@ async function start() {
                 setTimeout(async () => {
                     try {
                         await sock.sendMessage(chatJid, { 
-                            text: '✅ *Update Successful!*\n\nThe bot has successfully rebooted with the latest code from GitHub.\n\n> Powered by Queen Xavena' 
+                            text: '✅ *Update Successful!*\n\nThe bot has successfully rebooted with the latest code from GitHub.\n\n> Powered by Lord Xaven' 
                         });
                         console.log('[update] Success message sent.');
                     } catch (e) {
