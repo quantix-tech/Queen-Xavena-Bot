@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { getPrefix } from '../../lib/config.js';
 
 export default {
     command: 'extreme',
