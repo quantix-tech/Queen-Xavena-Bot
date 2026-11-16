@@ -23,19 +23,44 @@ export default {
 
         await ctx.reply(`📱 *TikTok*\n\n⏳ _Fetching video..._`);
 
-        const tiktokApiUrl = `https://api.bk9.dev/download/tiktok?url=${encodeURIComponent(url)}`;
+        let videoUrl = null;
+        let videoTitle = 'TikTok Video';
 
+        // ─── ATTEMPT 1: BK9 API ───
         try {
-            const response = await axios.get(tiktokApiUrl, { timeout: 15000 });
-            const data = response.data;
-
-            if (!data.status || !data.BK9 || !data.BK9.BK9) {
-                throw new Error('No download link found.');
+            console.log('[tiktok] Trying BK9 API...');
+            const res = await axios.get(`https://api.bk9.dev/download/tiktok?url=${encodeURIComponent(url)}`, { timeout: 30000 });
+            
+            if (res.data?.status && res.data?.BK9?.BK9) {
+                videoUrl = res.data.BK9.BK9;
+                videoTitle = res.data.BK9.title || videoTitle;
+                console.log('[tiktok] BK9 API Success!');
+            } else {
+                throw new Error('Invalid BK9 response format');
             }
+        } catch (err) {
+            console.log(`[tiktok] BK9 API failed or timed out (${err.message}). Trying Prexzy fallback...`);
 
-            const videoUrl = data.BK9.BK9;
-            const videoTitle = data.BK9.title || 'TikTok Video';
+            // ─── ATTEMPT 2: Prexzy API Fallback ───
+            try {
+                const res = await axios.get(`https://prexzyapis.com/download/tiktok?url=${encodeURIComponent(url)}`, { timeout: 30000 });
+                const data = res.data;
 
+                // Robust parsing for Prexzy response
+                const result = data.result || data.data || data;
+                videoUrl = result.video || result.video_url || result.url || result.play || result.hd;
+                videoTitle = result.title || videoTitle;
+
+                if (!videoUrl) throw new Error('No video URL found in Prexzy response');
+                console.log('[tiktok] Prexzy API Success!');
+            } catch (fallbackErr) {
+                console.error('[tiktok] Both APIs failed:', fallbackErr.message);
+                return ctx.reply(`❌ *Download Failed*\n\nCould not fetch the TikTok video. The API might be down or the link is invalid.\n_Error: ${fallbackErr.message}_`);
+            }
+        }
+
+        // ─── DOWNLOAD AND SEND ───
+        try {
             // Download the video into memory
             const videoRes = await axios.get(videoUrl, { 
                 responseType: 'arraybuffer', 
@@ -43,15 +68,14 @@ export default {
             });
             const videoBuffer = Buffer.from(videoRes.data);
 
-            // Send the video
             await sock.sendMessage(m.key.remoteJid, {
                 video: videoBuffer,
                 caption: `📱 *TikTok Video*\n\n*Title:* ${videoTitle.substring(0, 40)}${videoTitle.length > 40 ? '...' : ''}\n*Quality:* No watermark\n\n> Powered by Queen Xavena`
             }, { quoted: m });
 
-        } catch (err) {
-            console.error('TikTok error:', err);
-            await ctx.reply(`❌ *Download Failed*\n\n${err.message || 'Could not fetch video'}\n_Note: Try a different TikTok link._`);
+        } catch (downloadErr) {
+            console.error('[tiktok] Failed to download video file:', downloadErr.message);
+            await ctx.reply(`❌ *Download Failed*\nFailed to download the video file from the server. It might be too large or the link expired.`);
         }
     }
 };
