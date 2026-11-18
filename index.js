@@ -293,14 +293,28 @@ async function handleMessage(m) {
 
             if (jid.endsWith('@g.us')) {
                 const botNumber = extractRawId(sock.user.id);
-                const mentions = m.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
-                
-                const isMentioned = mentions.some(j => extractRawId(j) === botNumber);
-                const isReplyToBot = m.message?.extendedTextMessage?.contextInfo?.participant 
-                    ? extractRawId(m.message.extendedTextMessage.contextInfo.participant) === botNumber 
-                    : false;
-                
-                // 👇 NEW: Also trigger if the text contains the bot's name
+                const botLid = sock.user.lid ? extractRawId(sock.user.lid) : null;
+
+                // Dynamically extract contextInfo based on the message type
+                const msgType = Object.keys(m.message)[0];
+                const contextInfo = m.message[msgType]?.contextInfo;
+
+                const mentions = contextInfo?.mentionedJid || [];
+
+                // 1. Check if bot is mentioned (handles both Phone Number and LID)
+                const isMentioned = mentions.some(j => {
+                    const raw = extractRawId(j);
+                    return raw === botNumber || (botLid && raw === botLid);
+                });
+
+                // 2. Check if user is replying to the bot
+                let isReplyToBot = false;
+                if (contextInfo && contextInfo.participant) {
+                    const rawParticipant = extractRawId(contextInfo.participant);
+                    isReplyToBot = rawParticipant === botNumber || (botLid && rawParticipant === botLid);
+                }
+
+                // 3. Check if name is called
                 const isNameCalled = /\bxavena\b/i.test(rawText);
 
                 if (!isMentioned && !isReplyToBot && !isNameCalled) return;
