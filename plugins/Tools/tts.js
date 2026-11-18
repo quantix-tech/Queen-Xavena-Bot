@@ -55,11 +55,11 @@ export default {
                 throw new Error('Audio buffer is empty or too small');
             }
 
-            // 3. Send as Voice Note (ptt: true makes it look like a real voice note)
+            // 3. Send as audio
             await sock.sendMessage(m.key.remoteJid, {
                 audio: audioBuffer,
                 mimetype: 'audio/mp4', 
-                ptt: true 
+                ptt: false
             }, { quoted: m });
             
         } catch (error) {
