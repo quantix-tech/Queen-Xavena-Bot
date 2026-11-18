@@ -3,7 +3,11 @@ import sharp from 'sharp';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { getPrefix } from '../../lib/config.js';
+
+const execFileAsync = promisify(execFile);
 
 export default {
     command: 'tgsticker',
@@ -26,7 +30,6 @@ export default {
             return ctx.reply('❌ *Error:* TELEGRAM_BOT_TOKEN is missing in .env');
         }
 
-        // Extract pack name from link
         const match = link.match(/(?:addstickers|addemoji)\/([a-zA-Z0-9_]+)/);
         if (!match) {
             return ctx.reply('❌ Invalid Telegram sticker pack link.');
@@ -39,27 +42,28 @@ export default {
         fs.mkdirSync(tempDir, { recursive: true });
 
         try {
-            // 1. Fetch sticker set metadata from Telegram
             const setRes = await axios.get(`https://api.telegram.org/bot${token}/getStickerSet?name=${packName}`);
             if (!setRes.data.ok) throw new Error(setRes.data.description || 'Failed to fetch sticker set.');
 
             const stickers = setRes.data.result.stickers || [];
             const total = stickers.length;
 
-            if (total === 0) {
-                throw new Error('No stickers found in this pack.');
-            }
+            if (total === 0) throw new Error('No stickers found in this pack.');
 
             await ctx.reply(`📦 *Found ${total} stickers.*\n⏳ Downloading and converting...`);
 
-            // 2. Download and convert each sticker
             const stickerPaths = [];
 
             for (let i = 0; i < stickers.length; i++) {
                 const sticker = stickers[i];
                 
                 try {
-                    // Get file URL from Telegram
+                    // Skip Lottie (.tgs) stickers as they are extremely hard to convert without a browser
+                    if (sticker.is_animated) {
+                        console.log(`Skipping Lottie (.tgs) sticker ${i}`);
+                        continue; 
+                    }
+
                     const fileRes = await axios.get(`https://api.telegram.org/bot${token}/getFile?file_id=${sticker.file_id}`);
                     if (!fileRes.data.ok) continue;
 
@@ -68,17 +72,38 @@ export default {
 
                     const imgBuffer = await axios.get(fileUrl, { responseType: 'arraybuffer', timeout: 30000 }).then(r => r.data);
 
-                    // Convert to WebP (512x512)
-                    // Note: sharp handles .webp and static .png. For animated .webm, ffmpeg would be needed.
-                    // Telegram stickers are usually .webp (static/animated) or .tgs/.webm (animated).
-                    // We use sharp for webp/png.
-                    const webpBuffer = await sharp(Buffer.from(imgBuffer))
-                        .resize(512, 512, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
-                        .webp({ quality: 80 })
-                        .toBuffer();
-
+                    const ext = path.extname(filePath).toLowerCase();
                     const outPath = path.join(tempDir, `sticker_${i}.webp`);
-                    fs.writeFileSync(outPath, webpBuffer);
+
+                    if (ext === '.webm') {
+                        // 👇 ANIMATED STICKER: Convert .webm to .webp using ffmpeg
+                        const tempWebm = path.join(tempDir, `temp_${i}.webm`);
+                        fs.writeFileSync(tempWebm, imgBuffer);
+
+                        await execFileAsync('ffmpeg', [
+                            '-y',
+                            '-i', tempWebm,
+                            '-vcodec', 'libwebp',
+                            '-filter:v', 'fps=fps=15', // WhatsApp animated sticker standard
+                            '-lossless', '0',
+                            '-compression_level', '3',
+                            '-q:v', '50',
+                            '-preset', 'default',
+                            '-loop', '0',
+                            '-an',
+                            '-vsync', '0',
+                            outPath
+                        ]);
+
+                        fs.unlinkSync(tempWebm); // Cleanup temp webm
+                    } else {
+                        // 👇 STATIC STICKER: Convert .webp using sharp
+                        await sharp(Buffer.from(imgBuffer))
+                            .resize(512, 512, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
+                            .webp({ quality: 80 })
+                            .toFile(outPath);
+                    }
+
                     stickerPaths.push(outPath);
 
                 } catch (err) {
@@ -87,10 +112,9 @@ export default {
             }
 
             if (stickerPaths.length === 0) {
-                throw new Error('Could not convert any stickers.');
+                throw new Error('Could not convert any stickers. The pack might contain unsupported Lottie formats.');
             }
 
-            // 3. Split into packs of max 30
             const MAX_PER_PACK = 30;
             const packCount = Math.ceil(stickerPaths.length / MAX_PER_PACK);
 
@@ -115,19 +139,14 @@ export default {
                     description: `Telegram pack: ${packName} (${chunk.length} stickers)`
                 }, { quoted: m });
 
-                // Small delay between packs
-                if (p < packCount - 1) {
-                    await new Promise(r => setTimeout(r, 2000));
-                }
+                if (p < packCount - 1) await new Promise(r => setTimeout(r, 2000));
             }
 
         } catch (err) {
             console.error('TGSticker error:', err);
             await ctx.reply(`❌ *Failed to create sticker pack.*\n_Error: ${err.message}_`);
         } finally {
-            try {
-                fs.rmSync(tempDir, { recursive: true, force: true });
-            } catch (e) {}
+            try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (e) {}
         }
     }
 };
