@@ -209,11 +209,10 @@ async function handleMessagesUpsert({ messages, type }) {
 async function handleMessage(m) {
     if (!m?.message || !m.key?.remoteJid) return;
 
-    // CACHE MESSAGE FOR ANTIDELETE 
+    // Cache message for Antidelete
     if (m.key.id) {
         addToCache(m.key.id, m);
     }
-    // END CACHE 
 
     const jid = m.key.remoteJid;
     if (jid === 'status@broadcast' || jid.endsWith('@broadcast')) return;
@@ -245,6 +244,7 @@ async function handleMessage(m) {
         const chatType = jid.endsWith('@g.us') ? 'Group Chat' : 'Private DM';
         const pushName = m.pushName || 'User';
 
+        // ─── NLP TRIGGER ───
         const isNlpTrigger = /\bxavena\b/i.test(rawText); 
         
         if (getNlpMode() && isNlpTrigger) {
@@ -287,6 +287,7 @@ async function handleMessage(m) {
             }
         }
 
+        // ─── CHATBOT TRIGGER ───
         if (getChatbotMode()) {
             if (getMode() === 'private' && !isOwn && !isSud) return; 
 
@@ -298,8 +299,11 @@ async function handleMessage(m) {
                 const isReplyToBot = m.message?.extendedTextMessage?.contextInfo?.participant 
                     ? extractRawId(m.message.extendedTextMessage.contextInfo.participant) === botNumber 
                     : false;
+                
+                // 👇 NEW: Also trigger if the text contains the bot's name
+                const isNameCalled = /\bxavena\b/i.test(rawText);
 
-                if (!isMentioned && !isReplyToBot) return;
+                if (!isMentioned && !isReplyToBot && !isNameCalled) return;
             }
 
             const aiReply = await getChatbotResponse(rawText, pushName, role, chatType);
