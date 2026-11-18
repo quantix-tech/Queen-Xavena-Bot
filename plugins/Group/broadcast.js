@@ -6,7 +6,7 @@ export default {
     command: 'broadcast',
     aliases: ['bc'],
     description: 'Send a group status to all groups',
-    category: 'Owner',
+    category: 'Group',
     ownerOnly: true,
     usage: 'broadcast <message> OR reply to media',
 
