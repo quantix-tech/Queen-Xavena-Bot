@@ -3,7 +3,7 @@ export default {
     description: 'Make the bot leave the current group',
     category: 'Owner',
     ownerOnly: true,
-    usage: '.leave',
+    usage: 'leave',
 
     async execute(sock, m, args, ctx) {
         if (!m.key.remoteJid.endsWith('@g.us')) {
