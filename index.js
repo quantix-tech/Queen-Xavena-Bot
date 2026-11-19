@@ -64,7 +64,6 @@ async function start() {
     await sleep(300);
     loadConfig();
     
-    // ─── UPDATE FLAG CHECK ───
     const restartFlag = path.join(__dirname, 'restart.txt');
     if (fs.existsSync(restartFlag)) {
         try {
@@ -72,19 +71,13 @@ async function start() {
             if (chatJid) {
                 setTimeout(async () => {
                     try {
-                        await sock.sendMessage(chatJid, { 
-                            text: '✅ *Update Successful!*\n\nThe bot has successfully rebooted with the latest code from GitHub.\n\n> Powered by Queen Xavena' 
-                        });
-                        console.log('[update] Success message sent.');
-                    } catch (e) {
-                        console.error('[update] Failed to send success message:', e.message);
-                    }
+                        await sock.sendMessage(chatJid, { text: '✅ *Update Successful!*' });
+                    } catch (e) {}
                 }, 15000);
             }
             fs.unlinkSync(restartFlag); 
         } catch (e) {}
     }
-    // ─── END UPDATE FLAG CHECK ───
 
     success('Configuration loaded.');
     await sleep(300);
@@ -173,7 +166,7 @@ async function handleConnectionUpdate(update) {
   │   👑  QUEEN XAVENA CONNECTED SUCCESSFULLY │
   │   User    : ${sock.user?.name || 'Unknown'}                  
   │   Number  : ${sock.user?.id.split(':')[0]}                  
-  │   Prefix  : ${getPrefix()}                               
+  │   Prefix  : ${getPrefix() || '(none)'}                               
   │   Plugins : ${pluginMap.size}                               
   │   Mode    : ${getMode()}                            
   └───────────────────────────────────────────┘
@@ -212,19 +205,14 @@ async function handleMessage(m) {
     const jid = m.key.remoteJid;
     const rawText = m.message?.conversation || m.message?.extendedTextMessage?.text || m.message?.imageMessage?.caption || m.message?.videoMessage?.caption || '';
     
-    // 👇 DEBUG LOG 1: Incoming Message
     console.log(`\n[DEBUG] 📩 New Message | FromMe: ${m.key.fromMe} | Chat: ${jid}`);
     console.log(`[DEBUG] 📝 Text: "${rawText}"`);
 
     if (jid === 'status@broadcast' || jid.endsWith('@broadcast')) return;
     if (m.message?.reactionMessage) return;
 
-    // Cache message for Antidelete
-    if (m.key.id) {
-        addToCache(m.key.id, m);
-    }
+    if (m.key.id) addToCache(m.key.id, m);
 
-    // ─── SHADOWBAN ───
     if (jid.endsWith('@g.us') && m.key.participant) {
         if (isShadowbanned(jid, m.key.participant)) {
             try {
@@ -236,18 +224,21 @@ async function handleMessage(m) {
 
     const currentPrefix = getPrefix();
     
-    // ─── AI ROUTING (No Prefix) ───
-    if (!rawText.startsWith(currentPrefix) && rawText.trim()) {
-        console.log(`[DEBUG] 🤖 Entering AI Routing (No prefix detected)`);
+    // 👇 FIXED ROUTING LOGIC 👇
+    // If prefix is empty (''), this evaluates to false so AI routing runs.
+    // If prefix is '.', and text starts with '.', this evaluates to true (so AI is skipped).
+    const isCommandWithPrefix = currentPrefix ? rawText.startsWith(currentPrefix) : false;
+
+    if (!isCommandWithPrefix && rawText.trim()) {
+        console.log(`[DEBUG] 🤖 Entering AI Routing`);
         
-        // Anti-loop check for bot's own messages
         if (m.key.fromMe) {
             if (sentMessageIds.has(m.key.id)) {
                 console.log(`[DEBUG] ❌ Ignored: Bot's own message (Anti-loop)`);
                 sentMessageIds.delete(m.key.id);
                 return;
             }
-            console.log(`[DEBUG] ✅ Message is FromMe, but not a bot reply. Passing to AI...`);
+            console.log(`[DEBUG] ✅ Message is FromMe, passing to AI...`);
         }
 
         const isOwn = await isOwner(m, sock);
@@ -258,9 +249,6 @@ async function handleMessage(m) {
         const chatType = jid.endsWith('@g.us') ? 'Group Chat' : 'Private DM';
         const pushName = m.pushName || 'User';
 
-        console.log(`[DEBUG] 👤 Role: ${role} | ChatType: ${chatType}`);
-
-        // ─── NLP TRIGGER ───
         const isNlpTrigger = /\bxavena\b/i.test(rawText); 
         const nlpMode = getNlpMode();
         
@@ -273,7 +261,6 @@ async function handleMessage(m) {
             if (cleanText) {
                 if (getMode() === 'private') {
                     const allowed = isOwn || isSud;
-                    console.log(`[DEBUG] 🔒 Private Mode Check: ${allowed ? 'Passed' : 'Blocked'}`);
                     if (!allowed) return;
                 }
 
@@ -287,9 +274,9 @@ async function handleMessage(m) {
                     const ctx = await buildContext(sock, m);
                     if (ctx) {
                         const intentArgs = Array.isArray(intent.args) ? intent.args.join(' ') : '';
-                        ctx.text = `${currentPrefix}${intent.command} ${intentArgs}`.trim();
+                        ctx.text = `${currentPrefix || '.'}${intent.command} ${intentArgs}`.trim();
                         
-                        const [cmdRaw, ...args] = ctx.text.slice(currentPrefix.length).trim().split(/\s+/);
+                        const [cmdRaw, ...args] = ctx.text.slice((currentPrefix || '.').length).trim().split(/\s+/);
                         
                         const check = await canUse(m, plugin, sock);
                         if (check.ok) {
@@ -309,23 +296,20 @@ async function handleMessage(m) {
             }
         }
 
-        // ─── CHATBOT TRIGGER ───
         const chatbotMode = getChatbotMode();
         console.log(`[DEBUG] 💬 Chatbot Mode: ${chatbotMode}`);
 
         if (chatbotMode) {
             if (getMode() === 'private' && !isOwn && !isSud) {
-                console.log(`[DEBUG] ❌ Chatbot Blocked: Private Mode and not Owner/Sudo`);
+                console.log(`[DEBUG] ❌ Chatbot Blocked: Private Mode`);
                 return; 
             }
 
             if (jid.endsWith('@g.us')) {
                 const botNumber = extractRawId(sock.user.id);
                 const botLid = sock.user.lid ? extractRawId(sock.user.lid) : null;
-
                 const msgType = Object.keys(m.message)[0];
                 const contextInfo = m.message[msgType]?.contextInfo;
-
                 const mentions = contextInfo?.mentionedJid || [];
 
                 const isMentioned = mentions.some(j => {
@@ -344,7 +328,7 @@ async function handleMessage(m) {
                 console.log(`[DEBUG] 👥 Group Triggers | Mentioned: ${isMentioned} | ReplyToBot: ${isReplyToBot} | NameCalled: ${isNameCalled}`);
 
                 if (!isMentioned && !isReplyToBot && !isNameCalled) {
-                    console.log(`[DEBUG] ❌ Chatbot Blocked: Not mentioned, replied to, or named.`);
+                    console.log(`[DEBUG] ❌ Chatbot Blocked: Not triggered in group.`);
                     return;
                 }
             }
@@ -355,37 +339,30 @@ async function handleMessage(m) {
             if (aiReply) {
                 console.log(`[DEBUG] ✅ Chatbot Reply Sent!`);
                 await sock.sendMessage(jid, { text: aiReply }, { quoted: m });
-            } else {
-                console.log(`[DEBUG] ❌ Chatbot Reply is empty.`);
             }
             return;
         }
 
-        console.log(`[DEBUG] ❌ Exiting AI Routing: Neither NLP nor Chatbot mode triggered.`);
         return; 
     }
 
-    if (!rawText.startsWith(currentPrefix)) return;
+    // If we are here, it's a command (or we are in command processing)
+    if (currentPrefix && !rawText.startsWith(currentPrefix)) return;
 
     console.log(`[DEBUG] ⚡ Entering Command Processing`);
 
-    // ─── BAN CHECK ───
     const rawSender = m.key.participant || m.key.remoteJid;
     const resolvedSender = await getRealJid(rawSender, sock);
     const rawId = extractRawId(rawSender);
 
     if (isBanned([resolvedSender, rawId])) {
-        await sock.sendMessage(jid, { 
-            text: `⛔ *Access Denied*\n\nYou have been banned from using this bot.\nIf you think this is a mistake, contact the owner.` 
-        }, { quoted: m });
+        await sock.sendMessage(jid, { text: `⛔ *Access Denied*` }, { quoted: m });
         return; 
     }
 
-    if (m.key.fromMe) {
-        if (sentMessageIds.has(m.key.id)) {
-            sentMessageIds.delete(m.key.id);
-            return;
-        }
+    if (m.key.fromMe && sentMessageIds.has(m.key.id)) {
+        sentMessageIds.delete(m.key.id);
+        return;
     }
 
     const ctx = await buildContext(sock, m);
@@ -396,13 +373,23 @@ async function handleMessage(m) {
         if (media && media.isSticker) {
             const hash = getStickerHash(media.buffer);
             const boundCmd = getBoundCommand(hash);
-            if (boundCmd) ctx.text = `${currentPrefix}${boundCmd}`;
+            if (boundCmd) ctx.text = `${currentPrefix || ''}${boundCmd}`;
         }
     }
 
-    if (!ctx.text || !ctx.text.startsWith(currentPrefix)) return;
+    if (!ctx.text) return;
+    
+    // Strip prefix if it exists
+    let body = ctx.text;
+    if (currentPrefix && body.startsWith(currentPrefix)) {
+        body = body.slice(currentPrefix.length).trim();
+    } else if (!currentPrefix) {
+        // If no prefix, the whole text is the command
+        body = body.trim();
+    } else {
+        return;
+    }
 
-    const body = ctx.text.slice(currentPrefix.length).trim();
     if (!body) return;
 
     const [cmdRaw, ...args] = body.split(/\s+/);
@@ -414,7 +401,6 @@ async function handleMessage(m) {
         return;
     }
 
-    // ─── EXPLICIT MODE & ROLE CHECK ───
     const currentMode = getMode();
     const userIsOwner = await isOwner(m, sock);
     const userIsSudo = await isSudo(m, sock);
@@ -436,7 +422,7 @@ async function handleMessage(m) {
         await plugin.execute(sock, m, args, ctx);
     } catch (err) {
         console.error(chalk.red(`[Plugin Error] ${cmd}:`), err);
-        try { await ctx.reply(`❌ *Command Error*\n\nAn error occurred while running \`.${cmd}\`.\n_Error: ${err.message}_`); } catch (e) {}
+        try { await ctx.reply(`❌ *Command Error*`); } catch (e) {}
     }
 }
 
