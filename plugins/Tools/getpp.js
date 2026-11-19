@@ -35,30 +35,40 @@ export default {
 
         if (!targetJid) return ctx.reply('❌ Could not determine the target user.');
 
-        // ─── 2. FETCH PROFILE PICTURE ───
         await ctx.react('📸');
         
+        // ─── 2. RESOLVE JID & FETCH PP ───
         let ppUrl = null;
-        try {
-            ppUrl = await sock.profilePictureUrl(targetJid, 'image');
-        } catch (err) {
-            // If we can't get it, we'll send a fallback
-            ppUrl = 'https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_960_720.png';
-        }
-
-        // ─── 3. GET NAME & INFO ───
+        
         if (isGroupTarget) {
             try {
-                const metadata = await getGroupMetadata(sock, targetJid);
-                targetName = metadata.subject || 'Group';
-            } catch (e) {
-                targetName = 'Group';
+                ppUrl = await sock.profilePictureUrl(targetJid, 'image');
+            } catch (err) {
+                ppUrl = 'https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_960_720.png';
             }
         } else {
-            // Resolve real number
+            // Resolve the LID to a real phone number
             const realNumber = await getRealJid(targetJid, sock);
+            let resolvedJid = targetJid;
             
-            // Try to get Push Name
+            // If we have a valid phone number, use that format
+            if (realNumber && realNumber.length > 5) {
+                resolvedJid = realNumber + '@s.whatsapp.net';
+            }
+
+            try {
+                // Try fetching with the resolved JID first
+                ppUrl = await sock.profilePictureUrl(resolvedJid, 'image');
+            } catch (err) {
+                // Fallback to the original targetJid (might be a LID that Baileys can resolve internally)
+                try {
+                    ppUrl = await sock.profilePictureUrl(targetJid, 'image');
+                } catch (err2) {
+                    ppUrl = 'https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_960_720.png';
+                }
+            }
+
+            // ─── 3. GET NAME ───
             if (isGroupChat) {
                 try {
                     const metadata = await getGroupMetadata(sock, m.key.remoteJid);
@@ -67,8 +77,7 @@ export default {
                 } catch (e) {}
             }
             
-            // Fallback to WhatsApp onWhatsApp check
-            if (targetName === 'Unknown') {
+            if (targetName === 'Unknown' && realNumber) {
                 try {
                     const waInfo = await sock.onWhatsApp(realNumber + '@s.whatsapp.net');
                     if (waInfo && waInfo.length > 0 && waInfo[0].name) {
@@ -79,6 +88,16 @@ export default {
                 } catch (e) {
                     targetName = `+${realNumber}`;
                 }
+            }
+        }
+
+        // If it's a group, get the group name
+        if (isGroupTarget) {
+            try {
+                const metadata = await getGroupMetadata(sock, targetJid);
+                targetName = metadata.subject || 'Group';
+            } catch (e) {
+                targetName = 'Group';
             }
         }
 
