@@ -22,11 +22,16 @@ export default {
                 result = Buffer.from(text).toString('base64');
             } else {
                 result = Buffer.from(text, 'base64').toString('utf-8');
-                // Simple check to see if decoding produced garbage (invalid base64)
+                // Basic check to see if decoding produced garbage
                 if (result.includes('\uFFFD')) throw new Error('Invalid Base64 string');
             }
 
-            await ctx.reply(`🔤 *Base64 ${action === 'encode' ? 'Encoded' : 'Decoded'}*\n\n*Input:* ${text}\n*Output:*\n\`\`\`\n${result}\n\`\`\``);
+            // Limit output size to prevent WhatsApp message crash
+            if (result.length > 3000) {
+                result = result.substring(0, 3000) + '\n... (truncated)';
+            }
+
+            await ctx.reply(`🔤 *Base64 ${action === 'encode' ? 'Encoded' : 'Decoded'}*\n\n*Input:*\n${text}\n\n*Output:*\n\`\`\`\n${result}\n\`\`\``);
         } catch (err) {
             await ctx.reply(`❌ *Error:* Could not ${action} that string.`);
         }
