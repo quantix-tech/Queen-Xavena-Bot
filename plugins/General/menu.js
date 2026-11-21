@@ -68,7 +68,6 @@ export default {
 
         let text = `┌─〔 👑 ${botName.toUpperCase()} 〕\n`;
         text += `├◆ *User* : ${senderJid}\n`;
-        text += `├◆ *Role* : ${role}\n`;
         text += `├◆ *Prefix* : ${prefix === '' ? '_(none)_' : prefix}\n`;
         text += `├◆ *Core* : QX-CORE\n`;
         text += `├◆ *Version* : 1.0.0\n`;
@@ -90,7 +89,6 @@ export default {
         text += `┌─〔 💡 TIP 〕\n`;
         text += `├◆ Use *${prefix}menu <category>* to view commands\n`;
         text += `└─────────────◆\n\n`;
-        text += `> Powered by ${botName}`;
 
         await sendMenu(text);
     }
