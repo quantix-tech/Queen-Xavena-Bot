@@ -1,7 +1,9 @@
 import yts from 'yt-search';
 import axios from 'axios';
-import ytdl from '@vreden/youtube_scraper';
+import { YtDlp } from 'ytdlp-nodejs';
 import { getPrefix } from '../../lib/config.js';
+
+const ytdlp = new YtDlp();
 
 export default {
     command: 'video',
@@ -32,7 +34,7 @@ export default {
 
             // 2. Check Duration (Protect against massive files)
             const durationSeconds = res.seconds;
-            if (durationSeconds && durationSeconds > 1200) { // 1200s = 20 minutes
+            if (durationSeconds && durationSeconds > 1200) { // 20 minutes
                 return ctx.reply(`⚠️ *Video Too Long*\n\nThis video is ${res.timestamp} long. WhatsApp has a 100MB limit, and large videos usually fail to download.\n\nPlease try a shorter video or use \`${prefix}play\` for audio instead.`);
             }
 
@@ -47,47 +49,51 @@ export default {
                 await ctx.reply(foundText);
             }
 
-            let videoUrl = null;
+            let videoBuffer = null;
 
             // ─── ATTEMPT 1: Prexzy API ───
             try {
                 console.log('[video] Trying Prexzy API...');
                 const apiUrl = `https://prexzyapis.com/download/ytmp4?url=${encodeURIComponent(res.url)}`;
-                const response = await axios.get(apiUrl, { timeout: 60000 }); // 60 seconds timeout
+                const response = await axios.get(apiUrl, { timeout: 30000 });
                 const data = response.data;
 
                 const result = data.result || data.data || data;
-                videoUrl = result.video || result.url || result.download || result.link || result.mp4;
+                const videoUrl = result.video || result.url || result.download || result.link || result.mp4;
 
-                if (!videoUrl) throw new Error('No link in Prexzy response');
-                console.log('[video] Prexzy API Success!');
+                if (videoUrl) {
+                    const videoRes = await axios.get(videoUrl, { responseType: 'arraybuffer', timeout: 120000 });
+                    videoBuffer = Buffer.from(videoRes.data);
+                    console.log('[video] Prexzy API Success!');
+                } else {
+                    throw new Error('No link in Prexzy response');
+                }
             } catch (apiErr) {
-                console.log(`[video] Prexzy failed (${apiErr.message}). Trying fallback...`);
+                console.log(`[video] Prexzy failed (${apiErr.message}). Trying yt-dlp...`);
 
-                // ─── ATTEMPT 2: Vreden Scraper Fallback ───
+                // ─── ATTEMPT 2: yt-dlp Fallback ───
                 try {
-                    const anu = await ytdl.ytmp4(res.url);
-                    if (anu?.status && anu?.download?.url) {
-                        videoUrl = anu.download.url;
-                        console.log('[video] Vreden Fallback Success!');
-                    } else {
-                        throw new Error('No link in Vreden response');
+                    // yt-dlp can download directly to a buffer
+                    const stream = ytdlp.stream(res.url, {
+                        format: 'bestvideo[height<=720]+bestaudio/best[height<=720]', // 720p max to keep size reasonable
+                    });
+
+                    const chunks = [];
+                    for await (const chunk of stream) {
+                        chunks.push(chunk);
                     }
-                } catch (fallbackErr) {
-                    throw new Error(`All APIs failed. Last error: ${fallbackErr.message}`);
+                    videoBuffer = Buffer.concat(chunks);
+                    console.log('[video] yt-dlp Fallback Success!');
+                } catch (ytdlpErr) {
+                    throw new Error(`All APIs failed. Last error: ${ytdlpErr.message}`);
                 }
             }
 
-            await ctx.reply(`⏳ _Downloading video to server..._`);
+            if (!videoBuffer || videoBuffer.length < 1000) {
+                throw new Error('Empty video buffer received');
+            }
 
-            // 3. Download the video buffer
-            const videoRes = await axios.get(videoUrl, { 
-                responseType: 'arraybuffer', 
-                timeout: 120000 // 2 minutes to download
-            });
-            const videoBuffer = Buffer.from(videoRes.data);
-
-            // Check size limit (100MB)
+            // 3. Check size limit (100MB)
             const fileSizeMB = videoBuffer.length / (1024 * 1024);
             if (fileSizeMB > 100) {
                 return ctx.reply(`❌ *File Too Large*\nThe video is ${fileSizeMB.toFixed(1)}MB, which exceeds WhatsApp's 100MB limit.`);
