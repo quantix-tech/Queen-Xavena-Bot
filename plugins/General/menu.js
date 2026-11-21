@@ -24,10 +24,12 @@ export default {
                     caption: text
                 }, { quoted: m });
             } catch (err) {
+                console.error('❌ Menu image failed to load, sending text fallback:', err.message);
                 await sock.sendMessage(chatJid, { text: text }, { quoted: m });
             }
         }
         
+        // ─── SUB-MENU LOGIC (e.g., .menu general) ───
         if (args[0]) {
             const search = args[0].toUpperCase();
             let targetCategory = null;
@@ -43,7 +45,7 @@ export default {
                 return ctx.reply(`❌ Category "*${args[0]}*" not found.`);
             }
 
-            let text = `┌─〔 ✞ ${targetCategory.name.toUpperCase()} 〕\n`;
+            let text = `┌─〔 ✞ ${targetCategory.name.toUpperCase()} (${targetCategory.plugins.length}) 〕\n`;
             for (const p of targetCategory.plugins) {
                 text += `├◆ *${prefix}${p.command}*\n`;
             }
@@ -52,13 +54,12 @@ export default {
             return await sendMenu(text);
         }
 
-        // ─── MAIN MENU ───
+        // ─── MAIN MENU LOGIC ───
         const ram = (os.totalmem() - os.freemem()) / (1024 * 1024);
         const timeNow = Date.now();
         const msgTime = m.messageTimestamp ? (m.messageTimestamp * 1000) : timeNow;
         const speed = Math.abs(timeNow - msgTime) || 0;
 
-        // 👇 FIX: Use pushName if available, fallback to number
         const senderName = m.pushName || ctx.sender || 'Unknown';
         const senderJid = `@${senderName}`;
         
@@ -67,7 +68,7 @@ export default {
 
         let text = `┌─〔 👑 ${botName.toUpperCase()} 〕\n`;
         text += `├◆ *User* : ${senderJid}\n`;
-        text += `├◆ *Host* : Panel\n`;
+        text += `├◆ *Role* : ${role}\n`;
         text += `├◆ *Prefix* : ${prefix === '' ? '_(none)_' : prefix}\n`;
         text += `├◆ *Core* : QX-CORE\n`;
         text += `├◆ *Version* : 1.0.0\n`;
@@ -78,14 +79,18 @@ export default {
         text += `└─────────────◆\n\n`;
 
         text += `┌─〔 🔍 CATEGORIES 〕\n`;
+        
+        // 👇 Dynamic count per category
         for (const [cat, plugins] of grouped.entries()) {
             text += `├◆ *${cat.toUpperCase()}* - ${plugins.length} Command(s)\n`;
         }
+        
         text += `└─────────────◆\n\n`;
         
         text += `┌─〔 💡 TIP 〕\n`;
         text += `├◆ Use *${prefix}menu <category>* to view commands\n`;
         text += `└─────────────◆\n\n`;
+        text += `> Powered by ${botName}`;
 
         await sendMenu(text);
     }
