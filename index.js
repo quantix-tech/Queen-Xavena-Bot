@@ -6,7 +6,8 @@ import chalk from 'chalk';
 import { fileURLToPath } from 'url';
 import {
     makeWASocket, useMultiFileAuthState, Browsers, 
-    DisconnectReason, fetchLatestBaileysVersion, delay
+    DisconnectReason, fetchLatestBaileysVersion, delay,
+    downloadMediaMessage
 } from '@itsliaaa/baileys';
 
 import { 
@@ -203,13 +204,33 @@ async function handleMessage(m) {
     if (!m?.message || !m.key?.remoteJid) return;
 
     const jid = m.key.remoteJid;
-    const rawText = m.message?.conversation || m.message?.extendedTextMessage?.text || m.message?.imageMessage?.caption || m.message?.videoMessage?.caption || '';
-    
     if (jid === 'status@broadcast' || jid.endsWith('@broadcast')) return;
     if (m.message?.reactionMessage) return;
 
     if (m.key.id) addToCache(m.key.id, m);
 
+    const currentPrefix = getPrefix();
+    let rawText = m.message?.conversation || m.message?.extendedTextMessage?.text || m.message?.imageMessage?.caption || m.message?.videoMessage?.caption || '';
+    
+    // ─── STICKER BINDING CHECK (Triggers before anything else) ───
+    if (m.message?.stickerMessage) {
+        try {
+            const buffer = await downloadMediaMessage(m, 'buffer', {}, { logger: console });
+            if (buffer) {
+                const hash = getStickerHash(buffer);
+                const boundCmd = getBoundCommand(hash);
+                
+                if (boundCmd) {
+                    rawText = `${currentPrefix}${boundCmd}`;
+                    console.log(`[sticker-trigger] Activated command: ${boundCmd}`);
+                }
+            }
+        } catch (err) {
+            console.error('[sticker-trigger] Error:', err.message);
+        }
+    }
+
+    // ─── SHADOWBAN ───
     if (jid.endsWith('@g.us') && m.key.participant) {
         if (isShadowbanned(jid, m.key.participant)) {
             try {
@@ -219,10 +240,7 @@ async function handleMessage(m) {
         }
     }
 
-    const currentPrefix = getPrefix();
-    
-    // 👇 FIXED ROUTING LOGIC 👇
-    // Check if the first word of the message is a valid command in the pluginMap
+    // 👇 Determine if it's a command (Handles prefix='' properly)
     const firstWord = currentPrefix 
         ? rawText.slice(currentPrefix.length).trim().split(/\s+/)[0].toLowerCase() 
         : rawText.trim().split(/\s+/)[0].toLowerCase();
@@ -231,6 +249,7 @@ async function handleMessage(m) {
         ? (rawText.startsWith(currentPrefix) && pluginMap.has(firstWord))
         : pluginMap.has(firstWord);
 
+    // ─── AI ROUTING (No Prefix) ───
     if (!isCommand && rawText.trim()) {
         if (m.key.fromMe) {
             if (sentMessageIds.has(m.key.id)) {
@@ -286,7 +305,6 @@ async function handleMessage(m) {
         }
 
         const chatbotMode = getChatbotMode();
-
         if (chatbotMode) {
             if (getMode() === 'private' && !isOwn && !isSud) return; 
 
@@ -342,13 +360,9 @@ async function handleMessage(m) {
     const ctx = await buildContext(sock, m);
     if (!ctx) return;
 
-    if (ctx.type === 'stickerMessage') {
-        const media = await ctx.getMedia();
-        if (media && media.isSticker) {
-            const hash = getStickerHash(media.buffer);
-            const boundCmd = getBoundCommand(hash);
-            if (boundCmd) ctx.text = `${currentPrefix || ''}${boundCmd}`;
-        }
+    // Ensure text is correct if it was a sticker trigger
+    if (m.message?.stickerMessage && rawText.startsWith(currentPrefix)) {
+        ctx.text = rawText;
     }
 
     if (!ctx.text) return;
