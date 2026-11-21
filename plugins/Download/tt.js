@@ -29,7 +29,7 @@ export default {
         // ─── ATTEMPT 1: BK9 API ───
         try {
             console.log('[tiktok] Trying BK9 API...');
-            const res = await axios.get(`https://api.bk9.dev/download/tiktok?url=${encodeURIComponent(url)}`, { timeout: 30000 });
+            const res = await axios.get(`https://prexzyapis.com/download/tiktokv2?url=${encodeURIComponent(url)}`, { timeout: 30000 });
             
             if (res.data?.status && res.data?.BK9?.BK9) {
                 videoUrl = res.data.BK9.BK9;
