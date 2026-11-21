@@ -1,9 +1,10 @@
 import { isShadowbanned } from '../shadowban.js';
-import { isBotAdmin, extractRawId } from '../../lib/utils.js';
+import { isBotAdmin, getRealJid, extractRawId } from '../../lib/utils.js';
 
 export default function(sock) {
     sock.ev.on('messages.upsert', async ({ messages }) => {
         const m = messages[0];
+        // Only check group messages, ignore if from me
         if (!m?.message || !m.key.remoteJid.endsWith('@g.us') || m.key.fromMe) return;
 
         const jid = m.key.remoteJid;
@@ -11,19 +12,29 @@ export default function(sock) {
         
         if (!senderJid) return;
 
-        // Check if the sender is shadowbanned by their exact raw number
-        if (isShadowbanned(jid, senderJid)) {
-            try {
+        try {
+            // 1. Resolve both the raw LID and the real phone number
+            const rawId = extractRawId(senderJid);
+            const realNumber = await getRealJid(senderJid, sock);
+
+            // 2. Check if EITHER the raw ID or real number is in the shadowban list
+            const isBannedByLid = isShadowbanned(jid, senderJid);
+            const isBannedByNumber = isShadowbanned(jid, realNumber);
+            const isBannedByRaw = isShadowbanned(jid, rawId);
+
+            if (isBannedByLid || isBannedByNumber || isBannedByRaw) {
                 const isBot = await isBotAdmin(sock, jid);
                 if (!isBot) return; // Cannot delete if not admin
 
+                // 3. Silent Delete
                 await sock.sendMessage(jid, {
                     delete: { remoteJid: jid, fromMe: false, id: m.key.id, participant: senderJid }
                 });
-            } catch (err) {
-                console.error('Shadowban delete error:', err);
+                
+                console.log(`[shadowban] Deleted message from banned user: ${senderJid}`);
             }
-            return; // Stop processing
+        } catch (err) {
+            console.error('Shadowban handler error:', err);
         }
     });
 }
