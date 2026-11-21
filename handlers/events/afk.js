@@ -5,7 +5,7 @@ export default function(sock) {
     sock.ev.on('messages.upsert', async ({ messages }) => {
         const m = messages[0];
         if (!m?.message || m.key.remoteJid === 'status@broadcast' || m.key.remoteJid.endsWith('@broadcast')) return;
-        if (m.key.fromMe) return;
+        
 
         const sender = await getRealJid(m.key.participant || m.key.remoteJid, sock);
         const chatId = m.key.remoteJid;
