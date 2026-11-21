@@ -71,22 +71,18 @@ export default {
             } catch (apiErr) {
                 console.log(`[video] Prexzy failed (${apiErr.message}). Trying yt-dlp...`);
 
-                // ─── ATTEMPT 2: yt-dlp Fallback ───
-                try {
-                    // yt-dlp can download directly to a buffer
-                    const stream = ytdlp.stream(res.url, {
-                        format: 'bestvideo[height<=720]+bestaudio/best[height<=720]', // 720p max to keep size reasonable
-                    });
-
-                    const chunks = [];
-                    for await (const chunk of stream) {
-                        chunks.push(chunk);
-                    }
-                    videoBuffer = Buffer.concat(chunks);
-                    console.log('[video] yt-dlp Fallback Success!');
-                } catch (ytdlpErr) {
-                    throw new Error(`All APIs failed. Last error: ${ytdlpErr.message}`);
-                }
+              // ─── ATTEMPT 2: yt-dlp Fallback ───
+try {
+    // Use .toBuffer() to collect the entire video stream into memory
+    videoBuffer = await ytdlp.stream(res.url)
+        .filter('mergevideo') // Merges video + audio
+        .quality('720p')      // Cap quality to keep file size manageable
+        .toBuffer();
+    
+    console.log('[video] yt-dlp Fallback Success!');
+} catch (ytdlpErr) {
+    throw new Error(`All APIs failed. Last error: ${ytdlpErr.message}`);
+}
             }
 
             if (!videoBuffer || videoBuffer.length < 1000) {
