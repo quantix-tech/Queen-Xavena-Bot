@@ -1,6 +1,5 @@
 import { getGroupFeature } from '../features.js';
-import { getRealJid } from '../../lib/utils.js';
-import axios from 'axios';
+import { downloadMediaMessage } from '@itsliaaa/baileys';
 
 export default function(sock) {
     sock.ev.on('messages.upsert', async ({ messages }) => {
@@ -17,25 +16,36 @@ export default function(sock) {
         const isViewOnce = m.message.viewOnceMessage || m.message.viewOnceMessageV2 || m.message.viewOnceMessageV2Extension;
         if (!isViewOnce) return;
 
-        // We need to get the actual media inside the viewOnce wrapper
-        const innerMsg = isViewOnce.message;
-        if (!innerMsg) return;
+        console.log(`[antiviewonce] Detected ViewOnce message from ${m.pushName || jid}`);
 
         try {
-            // Download media using Baileys (we can't use ctx.getMedia because this is a raw event)
-            const { downloadMediaMessage } = await import('@itsliaaa/baileys');
-            const buffer = await downloadMediaMessage({ message: innerMsg, key: m.key }, 'buffer', {}, { logger: console });
+            // 👇 Pass the ENTIRE message object (m) to downloadMediaMessage so it can decrypt properly
+            const buffer = await downloadMediaMessage(m, 'buffer', {}, { logger: console });
             
+            if (!buffer || buffer.length < 100) throw new Error('Empty buffer');
+
             const botJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
-            const senderName = m.pushName || 'User';
+            const senderName = m.pushName || jid.split('@')[0];
             
-            await sock.sendMessage(botJid, {
-                image: buffer, 
-                caption: `👁️ *ViewOnce Caught*\nFrom: ${senderName}\nChat: ${isGroup ? 'Group' : 'DM'}`
-            });
+            // Determine mimetype from the inner message
+            const innerMsg = m.message.viewOnceMessage?.message || m.message.viewOnceMessageV2?.message || m.message.viewOnceMessageV2Extension?.message;
+            const msgType = Object.keys(innerMsg)[0];
+            
+            let caption = `👁️ *ViewOnce Caught*\n\n👤 *From:* ${senderName}\n💬 *Chat:* ${isGroup ? 'Group' : 'DM'}`;
+            if (jid.endsWith('@g.us')) caption += `\n📍 *Group:* ${jid.split('@')[0]}`;
+
+            if (msgType === 'imageMessage') {
+                await sock.sendMessage(botJid, { image: buffer, caption });
+            } else if (msgType === 'videoMessage') {
+                await sock.sendMessage(botJid, { video: buffer, caption });
+            } else if (msgType === 'audioMessage') {
+                await sock.sendMessage(botJid, { audio: buffer, mimetype: 'audio/mp4', ptt: true });
+            }
+
+            console.log(`[antiviewonce] Successfully forwarded to bot DM`);
 
         } catch (e) {
-            console.error('AntiViewOnce error:', e);
+            console.error('[antiviewonce] Failed to decrypt or send:', e.message);
         }
     });
 }
