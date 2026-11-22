@@ -1,0 +1,14 @@
+import { getPrefix } from '../../lib/config.js';
+export default {
+    command: 'dectohex',
+    aliases: ['dec2hex'],
+    description: 'Convert a decimal number (base 10) to hexadecimal (base 16) used in computing',
+    category: 'Education',
+    usage: 'dectohex <decimal>',
+    async execute(sock, m, args, ctx) {
+        const prefix = getPrefix();
+        const n = parseInt(args[0]);
+        if (isNaN(n) || n < 0) return ctx.reply(`💻 *Decimal to Hex*\n\nUsage: \`${prefix}dectohex 255\``);
+        return ctx.reply(`💻 *Decimal to Hex*\n\nDecimal: ${n}\nHex = *${n.toString(16).toUpperCase()}*`);
+    }
+};
