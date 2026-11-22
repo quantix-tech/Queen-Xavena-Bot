@@ -3,27 +3,23 @@ import { getPrefix } from '../../lib/config.js';
 export default {
     command: 'country',
     aliases: ['countryinfo'],
-    description: 'Get info about any country with flag image + caption using restcountries.eu v2 API',
+    description: 'Get info about any country with flag image + caption',
     category: 'Info',
     usage: 'country <name>',
     async execute(sock, m, args, ctx) {
         const name = args.join(' ').trim();
         if (!name) return ctx.reply(`🌍 *Country Info*\n\nUsage: \`.country nigeria\`\nUsage: \`.country japan\``);
 
-        // Helper to send image + caption - tries 3 ways
         const sendFlag = async (flagUrl, caption) => {
             const chatId = m.chat || m.key?.remoteJid;
-            // Try 1: URL
             try {
                 return await sock.sendMessage(chatId, { image: { url: flagUrl }, caption }, { quoted: m });
             } catch {}
-            // Try 2: Buffer (most reliable for WhatsApp)
             try {
                 const res = await fetch(flagUrl);
                 const buf = Buffer.from(await res.arrayBuffer());
                 return await sock.sendMessage(chatId, { image: buf, caption }, { quoted: m });
             } catch {}
-            // Try 3: Text fallback
             return ctx.reply(caption + `\n🏳️ *Flag:* ${flagUrl}`);
         };
 
@@ -42,8 +38,6 @@ export default {
                     if (Array.isArray(all)) c = all.find(x => x.name?.toLowerCase() === name.toLowerCase()) || all.find(x => x.name?.toLowerCase().includes(name.toLowerCase()));
                 } catch {}
             }
-
-            // If v2 works, use am
             if (c) {
                 const curr = c.currencies?.map(x => `${x.name} (${x.symbol || x.code || ''})`).join(', ') || 'N/A';
                 const lang = c.languages?.map(x => x.name).join(', ') || 'N/A';
@@ -53,35 +47,46 @@ export default {
                 return await sendFlag(flagPng, caption);
             }
 
-            // 2. FALLBACK - CountriesNow - Merge 3 endpoints to fix undefined
-            const [capRes, currRes, codeRes] = await Promise.all([
-                fetch('https://countriesnow.space/api/v0.1/countries/capital'),
-                fetch('https://countriesnow.space/api/v0.1/countries/currency'),
-                fetch('https://countriesnow.space/api/v0.1/countries/codes')
-            ]);
+            // 2. FALLBACK - CountriesNow
+            // Capital = GET list (this one works)
+            const capRes = await fetch('https://countriesnow.space/api/v0.1/countries/capital');
             const capData = (await capRes.json()).data || [];
-            const currData = (await currRes.json()).data || [];
-            const codeData = (await codeRes.json()).data || [];
-
             const found = capData.find(x => x.name.toLowerCase() === name.toLowerCase()) || capData.find(x => x.name.toLowerCase().includes(name.toLowerCase()));
             if (!found) return ctx.reply(`❌ Country *${name}* not found`);
 
-            const currInfo = currData.find(x => x.name.toLowerCase() === found.name.toLowerCase());
-            const codeInfo = codeData.find(x => x.name.toLowerCase() === found.name.toLowerCase());
+            // FIX 1 - CURRENCY: Must be POST with iso2, not GET list
+            // POST https://countriesnow.space/api/v0.1/countries/currency { iso2: "NG" } -> { data: { currency: "NGN" } }
+            let currency = 'N/A';
+            try {
+                const currRes = await fetch('https://countriesnow.space/api/v0.1/countries/currency', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ iso2: found.iso2 })
+                });
+                const currData = await currRes.json();
+                currency = currData.data?.currency || currData.data?.currency_code || 'N/A';
+                // If e return "NGN", show "NGN". If e return object, handle am
+                if (typeof currency === 'object') currency = currency.code || currency.name || 'N/A';
+            } catch {}
 
-            // Currency fix: CountriesNow returns { currency: "NGN", ... } or { currency: "Naira" } depending on version
-            let currency = currInfo?.currency || 'N/A';
-            // Dial code fix: field is dial_code
-            let dial = codeInfo?.dial_code || codeInfo?.dialCode || 'N/A';
-            if (dial !== 'N/A' && !String(dial).startsWith('+')) dial = `+${dial}`;
-
-            // Population
+            // FIX 2 - POPULATION: Use /q endpoint, not POST with wrong shape
+            // GET https://countriesnow.space/api/v0.1/countries/population/q?country=Nigeria
             let population = 'N/A';
             try {
-                const popRes = await fetch('https://countriesnow.space/api/v0.1/countries/population', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ country: found.name }) });
+                const popRes = await fetch(`https://countriesnow.space/api/v0.1/countries/population/q?country=${encodeURIComponent(found.name)}`);
                 const popData = await popRes.json();
                 const pops = popData.data?.populationCounts || [];
                 if (pops.length) population = pops[pops.length - 1].value.toLocaleString();
+            } catch {}
+
+            // Dial code - GET list (this one already works, you got +234)
+            let dial = 'N/A';
+            try {
+                const codeRes = await fetch('https://countriesnow.space/api/v0.1/countries/codes');
+                const codeData = (await codeRes.json()).data || [];
+                const codeInfo = codeData.find(x => x.name.toLowerCase() === found.name.toLowerCase());
+                dial = codeInfo?.dial_code || 'N/A';
+                if (dial !== 'N/A' && !String(dial).startsWith('+')) dial = `+${dial}`;
             } catch {}
 
             const flagPng = `https://flagcdn.com/w640/${(found.iso2 || 'ng').toLowerCase()}.png`;
