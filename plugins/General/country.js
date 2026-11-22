@@ -3,8 +3,8 @@ import { getPrefix } from '../../lib/config.js';
 export default {
     command: 'country',
     aliases: ['countryinfo'],
-    description: 'Get info about any country with flag image + caption',
-    category: 'Info',
+    description: 'Get info about any country',
+    category: 'General',
     usage: 'country <name>',
     async execute(sock, m, args, ctx) {
         const name = args.join(' ').trim();
@@ -24,7 +24,7 @@ export default {
         };
 
         try {
-            // 1. YOUR API - restcountries.eu v2
+            
             let c = null;
             try {
                 const res = await fetch(`https://restcountries.eu/rest/v2/name/${encodeURIComponent(name)}`, { headers: { 'User-Agent': 'Mozilla/5.0' } });
@@ -48,7 +48,7 @@ export default {
             }
 
             // 2. FALLBACK - CountriesNow
-            // Capital = GET list (this one works)
+            // Capital = GET list 
             const capRes = await fetch('https://countriesnow.space/api/v0.1/countries/capital');
             const capData = (await capRes.json()).data || [];
             const found = capData.find(x => x.name.toLowerCase() === name.toLowerCase()) || capData.find(x => x.name.toLowerCase().includes(name.toLowerCase()));
