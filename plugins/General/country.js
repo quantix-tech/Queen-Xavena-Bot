@@ -1,13 +1,31 @@
-import axios from 'axios';
+import { getPrefix } from '../../lib/config.js';
 export default {
-    command: 'country', description: 'Get info about a country', category: 'General', ownerOnly: false, usage: 'country <name>',
+    command: 'country',
+    aliases: ['countryinfo'],
+    description: 'Get info about any country - capital, population, currency, language and flag',
+    category: 'Info',
+    usage: 'country <name>',
     async execute(sock, m, args, ctx) {
-        const country = args.join(' ');
-        if (!country) return ctx.reply('❌ Provide a country name.');
+        const name = args.join(' ').trim();
+        if (!name) return ctx.reply(`🌍 *Country Info*\n\nUsage: \`.country nigeria\`\nUsage: \`.country japan\``);
         try {
-            const res = await axios.get(`https://restcountries.com/v3.1/name/${encodeURIComponent(country)}?fullText=true`, { timeout: 10000 });
-            const d = res.data[0];
-            await ctx.reply(`🌍 *Country Info*\n\n*Name:* ${d.name.common}\n*Capital:* ${d.capital?.[0] || 'N/A'}\n*Region:* ${d.region}\n*Population:* ${d.population.toLocaleString()}\n*Currency:* ${Object.values(d.currencies || {})[0]?.name || 'N/A'}`);
-        } catch (e) { await ctx.reply('❌ Country not found.'); }
+            const res = await fetch(`https://restcountries.com/v3.1/name/${encodeURIComponent(name)}?fullText=true`);
+            if (!res.ok) {
+                const res2 = await fetch(`https://restcountries.com/v3.1/name/${encodeURIComponent(name)}`);
+                if (!res2.ok) return ctx.reply(`❌ Country *${name}* not found`);
+                const d2 = await res2.json();
+                const c = d2[0];
+                return ctx.reply(formatCountry(c));
+            }
+            const data = await res.json();
+            return ctx.reply(formatCountry(data[0]));
+        } catch (e) {
+            return ctx.reply(`❌ Failed to fetch country info. Try again.`);
+        }
+        function formatCountry(c) {
+            const curr = c.currencies ? Object.values(c.currencies).map(x => `${x.name} (${x.symbol || ''})`).join(', ') : 'N/A';
+            const lang = c.languages ? Object.values(c.languages).join(', ') : 'N/A';
+            return `🌍 *${c.name.common} ${c.flag || ''}*\n━━━━━━━━━━━━━━━━━━\n\n🏛️ *Official:* ${c.name.official}\n🏙️ *Capital:* ${c.capital?.join(', ') || 'N/A'}\n👥 *Population:* ${c.population.toLocaleString()}\n🗺️ *Region:* ${c.region} - ${c.subregion || ''}\n💰 *Currency:* ${curr}\n🗣️ *Language:* ${lang}\n🕐 *Timezone:* ${c.timezones?.join(', ')}\n🚗 *Driving Side:* ${c.car?.side}\n🌐 *Domain:* ${c.tld?.join(', ')}\n\n🔗 *Map:* ${c.maps?.googleMaps}`;
+        }
     }
 };
