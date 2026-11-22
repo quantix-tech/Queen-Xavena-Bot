@@ -1,5 +1,5 @@
 import { getGlobalFeature } from '../features.js';
-import { getRealJid, extractRawId } from '../../lib/utils.js';
+import { getRealJid } from '../../lib/utils.js';
 import { unwrap, getType } from '../../lib/message.js';
 import { downloadMediaMessage } from '@itsliaaa/baileys';
 import pino from 'pino';
@@ -24,7 +24,6 @@ export default function (sock) {
                 for (let i = 0; i < 4; i++) {
                     const hit = VO_WRAPPERS.find(w => cur?.[w]?.message);
                     if (hit) { wrapped = cur[hit].message; break; }
-                    // unwrap one layer at a time in case it's nested
                     const next = unwrap(cur);
                     if (!next || next === cur) break;
                     cur = next;
@@ -56,7 +55,8 @@ export default function (sock) {
                     `From: ${senderName} (+${realNumber})\n` +
                     `Origin: ${origin}`;
 
-                const botJid = extractRawId(sock.user.id) + '@s.whatsapp.net';
+                // CHANGED: Same as VV2 - this is what works for you
+                const botJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
 
                 if (innerType === 'imageMessage') {
                     await sock.sendMessage(botJid, { image: buffer, caption });
