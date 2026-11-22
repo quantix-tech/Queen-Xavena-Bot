@@ -8,7 +8,7 @@ export default {
     usage: 'repo',
 
     async execute(sock, m, args, ctx) {
-        const REPO_URL = 'https://github.com/Quantix-tech/queen-xavena-bot';
+        const REPO_URL = 'https://github.com/Quantix-tech/Queen-Xavena-Bot';
         const botName = getBotName();
 
         const text = `🐙 *${botName} Repository*\n\n` +
