@@ -1,51 +1,73 @@
-import { getGroupFeature } from '../features.js';
+import { getGlobalFeature } from '../features.js';
+import { getRealJid, extractRawId } from '../../lib/utils.js';
+import { unwrap, getType } from '../../lib/message.js';
 import { downloadMediaMessage } from '@itsliaaa/baileys';
+import pino from 'pino';
 
-export default function(sock) {
-    sock.ev.on('messages.upsert', async ({ messages }) => {
-        const m = messages[0];
-        if (!m?.message || m.key.fromMe) return;
+const silentLogger = pino({ level: 'silent' });
 
-        const jid = m.key.remoteJid;
-        const isGroup = jid.endsWith('@g.us');
-        const featureKey = isGroup ? 'antiviewonce' : 'antiviewonce_dm';
-        
-        if (!getGroupFeature(jid, featureKey)) return;
+const VO_WRAPPERS = ['viewOnceMessage', 'viewOnceMessageV2', 'viewOnceMessageV2Extension'];
 
-        // Detect ViewOnce wrappers
-        const isViewOnce = m.message.viewOnceMessage || m.message.viewOnceMessageV2 || m.message.viewOnceMessageV2Extension;
-        if (!isViewOnce) return;
+export default function (sock) {
+    sock.ev.on('messages.upsert', async ({ messages, type }) => {
+        if (type !== 'notify') return;
+        if (!getGlobalFeature('antiviewonce')) return;
 
-        console.log(`[antiviewonce] Detected ViewOnce message from ${m.pushName || jid}`);
+        for (const m of messages) {
+            try {
+                if (!m?.message || !m.key?.remoteJid) continue;
+                if (m.key.fromMe) continue;
 
-        try {
-            // 👇 Pass the ENTIRE message object (m) to downloadMediaMessage so it can decrypt properly
-            const buffer = await downloadMediaMessage(m, 'buffer', {}, { logger: console });
-            
-            if (!buffer || buffer.length < 100) throw new Error('Empty buffer');
+                // Detect a view-once wrapper anywhere in the chain
+                let wrapped = null;
+                let cur = m.message;
+                for (let i = 0; i < 4; i++) {
+                    const hit = VO_WRAPPERS.find(w => cur?.[w]?.message);
+                    if (hit) { wrapped = cur[hit].message; break; }
+                    // unwrap one layer at a time in case it's nested
+                    const next = unwrap(cur);
+                    if (!next || next === cur) break;
+                    cur = next;
+                }
+                if (!wrapped) continue;
 
-            const botJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
-            const senderName = m.pushName || jid.split('@')[0];
-            
-            // Determine mimetype from the inner message
-            const innerMsg = m.message.viewOnceMessage?.message || m.message.viewOnceMessageV2?.message || m.message.viewOnceMessageV2Extension?.message;
-            const msgType = Object.keys(innerMsg)[0];
-            
-            let caption = `👁️ *ViewOnce Caught*\n\n👤 *From:* ${senderName}\n💬 *Chat:* ${isGroup ? 'Group' : 'DM'}`;
-            if (jid.endsWith('@g.us')) caption += `\n📍 *Group:* ${jid.split('@')[0]}`;
+                const innerType = getType(wrapped);
+                if (!['imageMessage', 'videoMessage', 'audioMessage'].includes(innerType)) continue;
 
-            if (msgType === 'imageMessage') {
-                await sock.sendMessage(botJid, { image: buffer, caption });
-            } else if (msgType === 'videoMessage') {
-                await sock.sendMessage(botJid, { video: buffer, caption });
-            } else if (msgType === 'audioMessage') {
-                await sock.sendMessage(botJid, { audio: buffer, mimetype: 'audio/mp4', ptt: true });
+                // Download
+                const buffer = await downloadMediaMessage(
+                    { message: wrapped, key: m.key },
+                    'buffer',
+                    {},
+                    { logger: silentLogger, reuploadRequest: sock.updateMediaMessage }
+                );
+                if (!buffer?.length) continue;
+
+                // Who sent it
+                const senderJid = m.key.participant || m.key.remoteJid;
+                const realNumber = await getRealJid(senderJid, sock);
+                const senderName = m.pushName || realNumber || 'Unknown';
+                const origin = m.key.remoteJid.endsWith('@g.us')
+                    ? `Group: ${m.key.remoteJid.split('@')[0]}`
+                    : 'DM';
+
+                const caption =
+                    `🔓 *View-Once ${innerType.replace('Message', '')}*\n` +
+                    `From: ${senderName} (+${realNumber})\n` +
+                    `Origin: ${origin}`;
+
+                const botJid = extractRawId(sock.user.id) + '@s.whatsapp.net';
+
+                if (innerType === 'imageMessage') {
+                    await sock.sendMessage(botJid, { image: buffer, caption });
+                } else if (innerType === 'videoMessage') {
+                    await sock.sendMessage(botJid, { video: buffer, caption });
+                } else {
+                    await sock.sendMessage(botJid, { audio: buffer, mimetype: 'audio/mpeg', ptt: true });
+                }
+            } catch (err) {
+                console.error('[antiviewonce]', err?.message || err);
             }
-
-            console.log(`[antiviewonce] Successfully forwarded to bot DM`);
-
-        } catch (e) {
-            console.error('[antiviewonce] Failed to decrypt or send:', e.message);
         }
     });
 }
