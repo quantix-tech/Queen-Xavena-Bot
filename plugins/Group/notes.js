@@ -4,7 +4,6 @@ import { getPrefix } from '../../lib/config.js';
 
 export default {
     command: 'notes',
-    aliases: ['note'],
     description: 'Save and retrieve notes for this group',
     category: 'Group',
     ownerOnly: false,
