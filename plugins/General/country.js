@@ -1,10 +1,8 @@
-import { getPrefix } from '../../lib/config.js';
-
 export default {
     command: 'country',
     aliases: ['countryinfo'],
     description: 'Get detailed info about any country including its flag',
-    category: 'Tools',
+    category: 'Info',
     ownerOnly: false,
     usage: 'country <name>',
 
@@ -15,59 +13,53 @@ export default {
         await ctx.react('🌍');
 
         try {
-            // 1. Get basic info (Capital, Currency, ISO) - FREE, NO KEY
-            const res = await fetch('https://countriesnow.space/api/v0.1/countries/capital', {
+            // Use restcountries API (Highly reliable, no key needed)
+            const res = await fetch(`https://restcountries.com/v3.1/name/${encodeURIComponent(name)}?fullText=true`, {
                 headers: { 'User-Agent': 'Mozilla/5.0' }
             });
+            
+            if (!res.ok) throw new Error('Not found');
             const data = await res.json();
-            const list = data.data || [];
+            const c = data[0];
 
-            // Find the country (exact match first, then partial)
-            const found = list.find(x => x.name.toLowerCase() === name.toLowerCase())
-                || list.find(x => x.name.toLowerCase().includes(name.toLowerCase()))
-                || list.find(x => name.toLowerCase().includes(x.name.toLowerCase()));
+            if (!c) throw new Error('No data');
 
-            if (!found) {
-                await ctx.react('❌');
-                return ctx.reply(`❌ Country *${name}* not found\n\nTry: \`.country Nigeria\` or \`.country Japan\``);
+            // Extract data safely with fallbacks
+            const countryName = c.name.common;
+            const capital = c.capital ? c.capital[0] : 'N/A';
+            const population = c.population ? c.population.toLocaleString() : 'N/A';
+            
+            // Extract currency (e.g., "Nigerian naira (₦)")
+            let currency = 'N/A';
+            if (c.currencies) {
+                const curKey = Object.keys(c.currencies)[0];
+                const curData = c.currencies[curKey];
+                currency = `${curData.name} (${curData.symbol || curKey})`;
             }
 
-            // 2. Fetch Population and Flag Image simultaneously for speed
-            let population = 'N/A';
-            let flagUrl = '';
-
-            const [popRes, flagRes] = await Promise.all([
-                fetch('https://countriesnow.space/api/v0.1/countries/population', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0' },
-                    body: JSON.stringify({ country: found.name })
-                }).catch(() => null),
-                fetch('https://countriesnow.space/api/v0.1/countries/flag/images', {
-                    headers: { 'User-Agent': 'Mozilla/5.0' }
-                }).catch(() => null)
-            ]);
-
-            if (popRes) {
-                const d2 = await popRes.json();
-                const pops = d2.data?.populationCounts || [];
-                if (pops.length) population = pops[pops.length - 1].value.toLocaleString();
+            // Extract languages
+            const languages = c.languages ? Object.values(c.languages).join(', ') : 'N/A';
+            
+            // Extract dial code
+            let dialCode = 'N/A';
+            if (c.idd && c.idd.root) {
+                dialCode = `${c.idd.root}${c.idd.suffixes ? c.idd.suffixes[0] : ''}`;
             }
 
-            if (flagRes) {
-                const d3 = await flagRes.json();
-                const f = d3.data?.find(x => x.name.toLowerCase() === found.name.toLowerCase());
-                if (f) flagUrl = f.flag;
-            }
+            const region = c.region || 'N/A';
+            const flagUrl = c.flags?.png || c.flags?.svg;
 
-            // 3. Build the message text
-            let msg = `🌍 *${found.name}*\n━━━━━━━━━━━━━━━━━━\n\n`;
-            msg += `🏙️ *Capital:* ${found.capital || 'N/A'}\n`;
+            // Build the message
+            let msg = `🌍 *${countryName}*\n━━━━━━━━━━━━━━━━━━\n\n`;
+            msg += `🏙️ *Capital:* ${capital}\n`;
             msg += `👥 *Population:* ${population}\n`;
-            msg += `💰 *Currency:* ${found.currency || 'N/A'}\n`;
-            msg += `🌍 *ISO Code:* ${found.iso2 || ''} / ${found.iso3 || ''}\n`;
-            msg += `📞 *Dial Code:* ${found.dial_code || 'N/A'}\n`;
+            msg += `💰 *Currency:* ${currency}\n`;
+            msg += `🗣️ *Languages:* ${languages}\n`;
+            msg += `🌐 *Region:* ${region}\n`;
+            msg += `🌍 *ISO Code:* ${c.cca2} / ${c.cca3}\n`;
+            msg += `📞 *Dial Code:* ${dialCode}\n`;
 
-            // 4. Send as Image with Caption if flag exists, otherwise plain text
+            // Send as Image with Caption
             if (flagUrl) {
                 await sock.sendMessage(m.key.remoteJid, {
                     image: { url: flagUrl },
@@ -80,9 +72,9 @@ export default {
             await ctx.react('✅');
 
         } catch (e) {
-            console.error('Country error:', e);
+            console.error('Country error:', e.message);
             await ctx.react('❌');
-            await ctx.reply(`❌ Failed to fetch country info. Try again later.`);
+            await ctx.reply(`❌ *Country not found:* "${name}"\n\n_Try checking your spelling or using the English name._`);
         }
     }
 };
