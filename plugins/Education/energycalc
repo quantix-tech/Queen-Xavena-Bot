@@ -1,0 +1,24 @@
+import { getPrefix } from '../../lib/config.js';
+export default {
+    command: 'energycalc',
+    aliases: ['energycalc'],
+    description: 'Calculate kinetic energy (½mv²) and potential energy (mgh) for moving and raised objects',
+    category: 'Education',
+    usage: 'energycalc ke <m> <v> | energycalc pe <m> <h>',
+    async execute(sock, m, args, ctx) {
+        const prefix = getPrefix();
+        const type = args[0]?.toLowerCase();
+        const [a, b] = args.slice(1).map(Number);
+        if (type === 'ke') {
+            if (isNaN(a) || isNaN(b)) return ctx.reply(`❌ Usage: \`${prefix}energycalc ke 10 5\``);
+            const ke = 0.5 * a * b * b;
+            return ctx.reply(`⚡ *Kinetic Energy*\n\nKE = ½mv²\nKE = ½ × ${a} × ${b}² = *${parseFloat(ke.toFixed(4))} J*`);
+        }
+        if (type === 'pe') {
+            if (isNaN(a) || isNaN(b)) return ctx.reply(`❌ Usage: \`${prefix}energycalc pe 10 5\``);
+            const pe = a * 9.81 * b;
+            return ctx.reply(`⚡ *Potential Energy*\n\nPE = mgh\nPE = ${a} × 9.81 × ${b} = *${parseFloat(pe.toFixed(4))} J*`);
+        }
+        return ctx.reply(`⚡ *Energy Calculator*\n\n\`${prefix}energycalc ke 10 5\` - Kinetic Energy\n\`${prefix}energycalc pe 10 5\` - Potential Energy`);
+    }
+};
