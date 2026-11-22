@@ -18,8 +18,10 @@ export default function (sock) {
                 if (!m?.message || !m.key?.remoteJid) continue;
                 if (m.key.fromMe) continue;
 
-                // Detect a view-once wrapper anywhere in the chain
                 let wrapped = null;
+
+                // ===== DETECTION 1: Wrapper style (old) =====
+                // ephemeralMessage -> viewOnceMessageV2 -> imageMessage
                 let cur = m.message;
                 for (let i = 0; i < 4; i++) {
                     const hit = VO_WRAPPERS.find(w => cur?.[w]?.message);
@@ -28,6 +30,26 @@ export default function (sock) {
                     if (!next || next === cur) break;
                     cur = next;
                 }
+
+                // ===== DETECTION 2: Flag style (new) =====
+                // imageMessage: { viewOnce: true }
+                if (!wrapped) {
+                    let check = m.message;
+                    for (let i = 0; i < 4; i++) {
+                        if (!check) break;
+                        const t = getType(check);
+                        if (['imageMessage', 'videoMessage', 'audioMessage'].includes(t)) {
+                            if (check[t]?.viewOnce === true) {
+                                wrapped = check;
+                                break;
+                            }
+                        }
+                        const next = unwrap(check);
+                        if (!next || next === check) break;
+                        check = next;
+                    }
+                }
+
                 if (!wrapped) continue;
 
                 const innerType = getType(wrapped);
@@ -55,7 +77,7 @@ export default function (sock) {
                     `From: ${senderName} (+${realNumber})\n` +
                     `Origin: ${origin}`;
 
-                // CHANGED: Same as VV2 - this is what works for you
+                // DM method from VV2 - the one that works for you
                 const botJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
 
                 if (innerType === 'imageMessage') {
