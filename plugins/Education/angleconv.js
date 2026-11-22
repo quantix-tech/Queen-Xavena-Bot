@@ -1,5 +1,34 @@
 import { getPrefix } from '../../lib/config.js';
 
+function parseAngleValue(raw) {
+    let str = raw.toLowerCase().replace(/π/g, 'pi').replace(/\s+/g, '');
+
+    // If it contains pi, evaluate it safely: pi, pi/2, 2pi, 3pi/2, 2*pi, pi/3
+    if (str.includes('pi')) {
+        // Handle implicit multiplication: 2pi -> 2*Math.PI, pi2 -> Math.PI*2 (rare)
+        str = str.replace(/(\d)pi/g, '$1*Math.PI');
+        str = str.replace(/pi(\d)/g, 'Math.PI*$1');
+        str = str.replace(/pi/g, 'Math.PI');
+
+        // Only allow safe characters
+        if (!/^[0-9.\+\-\*\/\(\)MathPI]+$/.test(str)) return NaN;
+
+        try {
+            const result = Function(`"use strict"; return (${str})`)();
+            return typeof result === 'number' ? result : NaN;
+        } catch {
+            return NaN;
+        }
+    }
+
+    return parseFloat(str);
+}
+
+function formatNum(n) {
+    if (Math.abs(n) < 0.000001 && n !== 0) return n.toExponential(4);
+    return parseFloat(n.toFixed(6)).toString();
+}
+
 export default {
     command: 'angleconv',
     aliases: ['angle', 'angleconvert', 'convertangle'],
@@ -13,25 +42,42 @@ export default {
         const input = args.join(' ');
 
         if (!input) {
-            return ctx.reply(`📐 *Angle Converter*\n\nUsage: \`${prefix}angleconv 90 deg to rad\`\nExample: \`${prefix}angleconv 1.57 rad to deg\`\n\n*Supported units:*\n• deg / degree / degrees\n• rad / radian / radians\n• grad / gradian / gradians / gon\n• turn / turns / rev / revolution\n• arcmin / arcsec`);
+            return ctx.reply(`📐 *Angle Converter*\n\nUsage: \`${prefix}angleconv 90 deg to rad\`\nExample: \`${prefix}angleconv pi/2 rad to deg\`\nExample: \`${prefix}angleconv pi rad to deg\`\n\n*Supported units:*\n• deg / degree / degrees\n• rad / radian / radians\n• grad / gradian / gradians / gon\n• turn / turns / rev / revolution\n• arcmin / arcsec`);
         }
 
         let cleaned = input.toLowerCase().replace(/,/g, ' ').replace(/\s+/g, ' ').trim();
-        cleaned = cleaned.replace(/(\d)([a-z])/g, '$1 $2');
+        cleaned = cleaned.replace(/(\d)([a-z])/g, '$1 $2'); // 90deg -> 90 deg
+
+        // Merge split pi expressions: "pi / 2" -> "pi/2"
+        cleaned = cleaned.replace(/pi\s*\/\s*/g, 'pi/');
+        cleaned = cleaned.replace(/pi\s*\*\s*/g, 'pi*');
 
         const parts = cleaned.split(' ').filter(Boolean);
         const filtered = parts.filter(p => p !== 'to' && p !== 'in' && p !== '->');
 
         if (filtered.length < 2) {
-            return ctx.reply(`❌ Invalid format.\nTry: \`${prefix}angleconv 90 deg to rad\``);
+            return ctx.reply(`❌ Invalid format.\nTry: \`${prefix}angleconv 90 deg to rad\` or \`${prefix}angleconv pi/2 rad to deg\``);
         }
 
-        const value = parseFloat(filtered[0]);
-        const fromRaw = filtered[1];
-        const toRaw = filtered[2] || 'deg';
+        // If user typed "pi / 2 rad", filtered becomes ["pi/2", "rad"] after merge.
+        // If they typed "2 pi rad", handle it: join first two if second is pi-related
+        let valueRaw = filtered[0];
+        let fromIndex = 1;
+        if (filtered[0] === 'pi' && filtered[1] && !isNaN(parseFloat(filtered[1]))) {
+            valueRaw = filtered[0];
+            fromIndex = 1;
+        } else if (!isNaN(parseFloat(filtered[0])) && filtered[1] === 'pi') {
+            valueRaw = `${filtered[0]}pi`;
+            fromIndex = 2;
+        }
+
+        const fromRaw = filtered[fromIndex];
+        const toRaw = filtered[fromIndex + 1] || 'deg';
+
+        const value = parseAngleValue(valueRaw);
 
         if (isNaN(value)) {
-            return ctx.reply(`❌ "${filtered[0]}" is not a valid number.\nTry: \`${prefix}angleconv 90 deg to rad\``);
+            return ctx.reply(`❌ "${valueRaw}" is not a valid number.\nTry: \`${prefix}angleconv 90 deg to rad\` or \`${prefix}angleconv pi/2 rad to deg\``);
         }
 
         const units = {
@@ -86,20 +132,18 @@ export default {
             mrad: 'Milliradians'
         };
 
-        const formatNum = (n) => {
-            if (Math.abs(n) < 0.000001 && n !== 0) return n.toExponential(4);
-            return parseFloat(n.toFixed(6)).toString();
-        };
-
         let extra = '';
         if (to === 'rad' && Math.abs(inDegrees % 90) < 0.0001) {
             const piVal = result / Math.PI;
             extra = `\n\n*In terms of π:* ${formatNum(piVal)}π`;
         }
 
+        // Show original pi expression if user used pi
+        const displayValue = valueRaw.includes('pi') ? valueRaw : formatNum(value);
+
         return ctx.reply(
             `📐 *Angle Conversion*\n\n` +
-            `*${formatNum(value)} ${pretty[from]}*\n` +
+            `*${displayValue} ${pretty[from]}*\n` +
             `=\n` +
             `*${formatNum(result)} ${pretty[to]}*${extra}`
         );
