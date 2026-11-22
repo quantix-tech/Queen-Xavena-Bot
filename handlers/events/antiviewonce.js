@@ -1,11 +1,10 @@
-import { getGlobalFeature } from '../features.js';
+import { getGlobalFeature } from '../../handlers/features.js';
 import { getRealJid } from '../../lib/utils.js';
 import { unwrap, getType } from '../../lib/message.js';
 import { downloadMediaMessage } from '@itsliaaa/baileys';
 import pino from 'pino';
 
 const silentLogger = pino({ level: 'silent' });
-
 const VO_WRAPPERS = ['viewOnceMessage', 'viewOnceMessageV2', 'viewOnceMessageV2Extension'];
 
 export default function (sock) {
@@ -20,8 +19,7 @@ export default function (sock) {
 
                 let wrapped = null;
 
-                // ===== DETECTION 1: Wrapper style (old) =====
-                // ephemeralMessage -> viewOnceMessageV2 -> imageMessage
+                // DETECTION 1: Wrapper style
                 let cur = m.message;
                 for (let i = 0; i < 4; i++) {
                     const hit = VO_WRAPPERS.find(w => cur?.[w]?.message);
@@ -31,8 +29,7 @@ export default function (sock) {
                     cur = next;
                 }
 
-                // ===== DETECTION 2: Flag style (new) =====
-                // imageMessage: { viewOnce: true }
+                // DETECTION 2: Flag style
                 if (!wrapped) {
                     let check = m.message;
                     for (let i = 0; i < 4; i++) {
@@ -55,7 +52,6 @@ export default function (sock) {
                 const innerType = getType(wrapped);
                 if (!['imageMessage', 'videoMessage', 'audioMessage'].includes(innerType)) continue;
 
-                // Download
                 const buffer = await downloadMediaMessage(
                     { message: wrapped, key: m.key },
                     'buffer',
@@ -64,7 +60,6 @@ export default function (sock) {
                 );
                 if (!buffer?.length) continue;
 
-                // Who sent it
                 const senderJid = m.key.participant || m.key.remoteJid;
                 const realNumber = await getRealJid(senderJid, sock);
                 const senderName = m.pushName || realNumber || 'Unknown';
@@ -77,7 +72,6 @@ export default function (sock) {
                     `From: ${senderName} (+${realNumber})\n` +
                     `Origin: ${origin}`;
 
-                // DM method from VV2 - the one that works for you
                 const botJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
 
                 if (innerType === 'imageMessage') {
