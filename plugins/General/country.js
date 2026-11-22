@@ -1,6 +1,6 @@
 import { getPrefix } from '../../lib/config.js';
 
-// Cache - so we no fetch big list every time
+// Cache - so we don't fetch big list every time
 let capitalCache = null;
 let capitalCacheTime = 0;
 let codesCache = null;
@@ -28,7 +28,7 @@ export default {
     command: 'country',
     aliases: ['countryinfo'],
     description: 'Get info about any country with flag image + caption - stable with cache and retry',
-    category: 'Info',
+    category: 'General',
     usage: 'country <name>',
     async execute(sock, m, args, ctx) {
         const name = args.join(' ').trim();
