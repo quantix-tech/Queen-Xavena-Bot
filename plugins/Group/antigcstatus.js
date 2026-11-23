@@ -17,13 +17,33 @@ export default {
             return ctx.reply('❌ This command only works in groups.');
         }
 
-        const metadata = await getGroupMetadata(sock, jid);
-        if (!(await isSenderAdmin(sock, jid, m.key.participant, metadata))) {
+        // Safe metadata fetch
+        let metadata = null;
+        try {
+            metadata = await getGroupMetadata(sock, jid);
+        } catch (err) {
+            console.error('[antigcstatus] metadata fetch failed:', err?.message || err);
+            return ctx.reply('❌ Could not fetch group info. Try again in a moment.');
+        }
+
+        // Safe admin check
+        let isAdmin = false;
+        try {
+            isAdmin = await isSenderAdmin(sock, jid, m.key.participant, metadata);
+        } catch (err) {
+            console.error('[antigcstatus] admin check failed:', err?.message || err);
+        }
+
+        if (!isAdmin) {
             return ctx.reply('❌ Admin only.');
         }
 
         const action = args[0]?.toLowerCase();
-        const current = getGroupFeature(jid, 'antigcstatus') || 'off';
+        
+        // Handle legacy boolean values safely (fixes the crash)
+        let current = getGroupFeature(jid, 'antigcstatus') || 'off';
+        if (current === true) current = 'delete'; 
+        current = String(current).toLowerCase();
 
         if (!action) {
             return ctx.reply(
