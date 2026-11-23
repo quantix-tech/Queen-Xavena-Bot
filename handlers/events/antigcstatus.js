@@ -1,30 +1,14 @@
 import { getGroupFeature } from '../features.js';
 import { isBotAdmin, isSenderAdmin } from '../../lib/utils.js';
-import { unwrap, getType } from '../../lib/message.js';
 import { delay } from '@itsliaaa/baileys';
 
 function isGroupStatus(m) {
     if (!m?.message) return false;
 
-    
+    // Strictly check for the wrapper formats only
     if (m.message.groupStatus) return true;
     if (m.message.groupStatusMessageV2) return true;
     if (m.message.groupStatusMessage) return true;
-
-    // 2. Unwrap and check contextInfo
-    const inner = unwrap(m.message) || m.message;
-    const type = getType(inner);
-    if (!type) return false;
-
-    const ctxInfo = inner[type]?.contextInfo;
-    if (!ctxInfo) return false;
-
-    
-    if (ctxInfo.isGroupStatus === true) return true;
-    if (ctxInfo.remoteJid === 'status@broadcast') return true;
-    
-    
-    if (ctxInfo.statusSourceType !== undefined) return true;
 
     return false;
 }
@@ -43,7 +27,7 @@ export default function (sock) {
                 const mode = getGroupFeature(m.key.remoteJid, 'antigcstatus');
                 if (!mode || mode === 'off') continue;
 
-                // If it's not a status, skip
+                // If it doesn't have the groupStatus wrapper, completely ignore it.
                 if (!isGroupStatus(m)) continue;
 
                 const isBot = await isBotAdmin(sock, m.key.remoteJid);
@@ -52,7 +36,7 @@ export default function (sock) {
                 const isAdmin = await isSenderAdmin(sock, m.key.remoteJid, m.key.participant);
                 if (isAdmin) continue;
 
-               
+              
                 try {
                     await sock.sendMessage(m.key.remoteJid, { delete: m.key });
                     console.log(`[antigcstatus] Deleted status from ${m.key.participant}`);
@@ -60,7 +44,7 @@ export default function (sock) {
                     console.error('[antigcstatus] Delete failed:', delErr.message);
                 }
 
-              
+             
                 if (mode === 'kick' || mode === true) {
                     await delay(500);
                     await sock.sendMessage(m.key.remoteJid, {
