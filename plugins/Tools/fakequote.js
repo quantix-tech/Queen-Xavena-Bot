@@ -5,7 +5,7 @@ export default {
     command: 'fakequote',
     aliases: ['fc', 'quote'],
     description: 'Generate a fake WhatsApp quote image',
-    category: 'General',
+    category: 'Tools',
     ownerOnly: false,
     usage: 'fakequote <text> OR reply to a message',
 
@@ -15,15 +15,9 @@ export default {
         // 1. Resolve the text
         let text = args.join(' ').trim();
         
-        // If no text was typed, dig into the quoted message directly
+        // If no text was typed, grab it from the quoted context
         if (!text && ctx.quoted) {
-            const qMsg = ctx.quoted.message;
-            text = qMsg?.conversation 
-                || qMsg?.extendedTextMessage?.text 
-                || qMsg?.imageMessage?.caption 
-                || qMsg?.videoMessage?.caption
-                || qMsg?.documentMessage?.caption
-                || '';
+            text = ctx.quoted.text || '';
         }
 
         if (!text) {
@@ -35,11 +29,12 @@ export default {
 
             // 2. Resolve who to quote
             let name = m.pushName || 'User';
-            let jid = m.key.participant || m.key.remoteJid; // Default to sender
+            let jid = m.key.participant || m.key.remoteJid;
             
             if (ctx.quoted) {
-                // If replying, quote the person they replied to
                 jid = ctx.quoted.sender.includes('@') ? ctx.quoted.sender : ctx.quoted.sender + '@s.whatsapp.net';
+                
+                // If we are in a group, try to get their real pushName
                 if (m.key.remoteJid.endsWith('@g.us')) {
                     try {
                         const metadata = await sock.groupMetadata(m.key.remoteJid);
@@ -51,7 +46,7 @@ export default {
                 }
             }
 
-            // 3. Get and process profile picture (Make it round)
+            // 3. Get and process profile picture
             let ppBase64 = '';
             try {
                 const ppUrl = await sock.profilePictureUrl(jid, 'image');
@@ -65,52 +60,39 @@ export default {
                     .png()
                     .toBuffer();
                 ppBase64 = roundPp.toString('base64');
-            } catch (e) {
-                // Fallback blank circle
-            }
+            } catch (e) {}
 
-            // 4. Escape text for SVG
+            // 4. Escape for SVG
             const escapeSvg = (str) => String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
             
             const safeName = escapeSvg(name.length > 20 ? name.substring(0, 20) + '...' : name);
             const safeText = escapeSvg(text);
 
-            // 5. Create SVG template
+            // 5. SVG
             const svg = `
             <svg width="800" height="400" xmlns="http://www.w3.org/2000/svg">
-                <!-- Background -->
                 <rect width="100%" height="100%" fill="#0b141a" />
-                
-                <!-- Chat Bubble -->
                 <rect x="50" y="50" width="700" height="300" rx="15" fill="#005c4b" />
                 
-                <!-- Profile Picture -->
                 ${ppBase64 
                     ? `<image href="data:image/png;base64,${ppBase64}" x="70" y="70" width="80" height="80" />`
                     : `<circle cx="110" cy="110" r="40" fill="#cccccc" />`
                 }
                 
-                <!-- Name Text -->
                 <text x="170" y="110" font-family="Arial, sans-serif" font-size="24" font-weight="bold" fill="#ffffff">${safeName}</text>
                 
-                <!-- Message Text (using foreignObject for auto-wrapping) -->
                 <foreignObject x="70" y="160" width="640" height="150">
                     <div xmlns="http://www.w3.org/1999/xhtml" style="color: #ffffff; font-family: Arial, sans-serif; font-size: 22px; line-height: 1.4; word-wrap: break-word; white-space: pre-wrap;">${safeText}</div>
                 </foreignObject>
                 
-                <!-- Timestamp -->
                 <text x="690" y="320" font-family="Arial, sans-serif" font-size="18" fill="#8696a0" text-anchor="end">12:00</text>
                 
-                <!-- Double Checkmarks -->
                 <path d="M 705 310 L 710 315 L 720 305" stroke="#53bdeb" stroke-width="2" fill="none" />
                 <path d="M 712 310 L 717 315 L 727 305" stroke="#53bdeb" stroke-width="2" fill="none" />
             </svg>
             `;
 
-            // 6. Render SVG to PNG
-            const finalBuffer = await sharp(Buffer.from(svg))
-                .png()
-                .toBuffer();
+            const finalBuffer = await sharp(Buffer.from(svg)).png().toBuffer();
 
             await sock.sendMessage(m.key.remoteJid, {
                 image: finalBuffer,
