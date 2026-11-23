@@ -121,7 +121,7 @@ async function connect() {
         markOnlineOnConnect: false,
         generateHighQualityLinkPreview: false,
         defaultQueryTimeoutMs: 60000,
-        getMessage: async (key) => getStored(key) ?? { conversation: getBotName() }
+        getMessage: async (key) => getStored(key)
     });
 
     const originalSend = sock.sendMessage;
