@@ -8,8 +8,12 @@ import pino from 'pino';
 const silentLogger = pino({ level: 'silent' });
 const VO_WRAPPERS = ['viewOnceMessage', 'viewOnceMessageV2', 'viewOnceMessageV2Extension'];
 
+// NEW LOGIC: Handles both wrapped view-onces (from Android clients) 
+// AND unwrapped direct view-onces (from Web clients).
 function findViewOnce(message) {
     let cur = message;
+    
+    // 1. Check for wrappers
     for (let i = 0; i < 6 && cur; i++) {
         const hit = VO_WRAPPERS.find(w => cur?.[w]?.message);
         if (hit) return cur[hit].message;
@@ -17,6 +21,15 @@ function findViewOnce(message) {
         if (!next || next === cur) break;
         cur = next;
     }
+
+    // 2. Check for direct view-once flag on the media itself
+    cur = unwrap(message) || message;
+    const type = getType(cur);
+    if (type && cur[type]?.viewOnce === true) {
+        console.log(`[DEBUG-AVO] Found direct viewOnce flag on ${type}!`);
+        return cur;
+    }
+
     return null;
 }
 
@@ -24,7 +37,6 @@ export default function (sock) {
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
         if (type !== 'notify') return;
         
-        // Debug 1: Is the toggle ON?
         const isOn = getGlobalFeature('antiviewonce');
         if (!isOn) return; 
 
@@ -35,21 +47,16 @@ export default function (sock) {
                 if (!m?.message || !m.key?.remoteJid) continue;
                 if (m.key.fromMe) continue;
 
-                // Debug 2: Is it a view once?
                 const inner = findViewOnce(m.message);
-                if (!inner) continue; // Normal message, ignore.
+                if (!inner) continue;
 
                 const innerType = getType(inner);
-                console.log(`\n[DEBUG-AVO] Found ViewOnce! Type: ${innerType}`);
-                
-                if (!['imageMessage', 'videoMessage', 'audioMessage'].includes(innerType)) {
-                    console.log(`[DEBUG-AVO] Unsupported type: ${innerType}`);
-                    continue;
-                }
+                if (!['imageMessage', 'videoMessage', 'audioMessage'].includes(innerType)) continue;
+
+                console.log(`[DEBUG-AVO] Found ViewOnce! Type: ${innerType}`);
 
                 const stored = getStored(m.key) || m.message;
 
-                console.log(`[DEBUG-AVO] Attempting download...`);
                 const buffer = await downloadMediaMessage(
                     { key: m.key, message: stored },
                     'buffer',
@@ -60,12 +67,7 @@ export default function (sock) {
                     return null;
                 });
 
-                if (!buffer?.length) {
-                    console.log(`[DEBUG-AVO] Buffer is empty or null.`);
-                    continue;
-                }
-
-                console.log(`[DEBUG-AVO] Download SUCCESS! Buffer size: ${buffer.length} bytes.`);
+                if (!buffer?.length) continue;
 
                 const senderJid = m.key.participant || m.key.remoteJid;
                 const realNumber = await getRealJid(senderJid, sock);
