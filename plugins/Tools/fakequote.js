@@ -5,7 +5,7 @@ export default {
     command: 'fakequote',
     aliases: ['fc', 'quote'],
     description: 'Generate a fake WhatsApp quote image',
-    category: 'General',
+    category: 'Tools',
     ownerOnly: false,
     usage: 'fakequote <text> OR reply to a message',
 
