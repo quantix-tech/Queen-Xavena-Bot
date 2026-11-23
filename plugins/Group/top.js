@@ -1,5 +1,6 @@
-import { getGroupActivity, getTotalMessages } from '../../handlers/activity.js';
+import { getGroupActivity } from '../../handlers/activity.js';
 import { getPrefix } from '../../lib/config.js';
+import moment from 'moment-timezone';
 
 export default {
     command: 'top',
@@ -17,15 +18,21 @@ export default {
         }
 
         const activity = getGroupActivity(jid);
-        const totalMsgs = getTotalMessages(jid);
+        const userIds = Object.keys(activity);
 
-        if (totalMsgs === 0) {
+        if (userIds.length === 0) {
             return ctx.reply('📭 *No Activity Yet*\n\nThere are no messages recorded for this group.');
+        }
+
+        // Calculate total messages
+        let totalMsgs = 0;
+        for (const id of userIds) {
+            totalMsgs += activity[id].count;
         }
 
         // Sort users by message count (highest first)
         const sorted = Object.entries(activity)
-            .sort(([, a], [, b]) => b - a)
+            .sort(([, a], [, b]) => b.count - a.count)
             .slice(0, 10); // Top 10
 
         let text = `🏆 *Top Active Members*\n`;
@@ -33,9 +40,17 @@ export default {
 
         const medals = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
 
-        sorted.forEach(([userId, count], index) => {
+        sorted.forEach(([userId, data], index) => {
             const mention = `@${userId.split('@')[0].split(':')[0]}`;
-            text += `${medals[index]} ${mention} — *${count}* msgs\n`;
+            
+            // Format the "last seen" time
+            let timeAgo = 'Unknown';
+            if (data.lastSeen) {
+                timeAgo = moment(data.lastSeen).fromNow();
+            }
+
+            text += `${medals[index]} ${mention} — *${data.count}* msgs\n`;
+            text += `   └ _Last seen: ${timeAgo}_\n`;
         });
 
         text += `\n_Use ${getPrefix()}top to refresh_`;
