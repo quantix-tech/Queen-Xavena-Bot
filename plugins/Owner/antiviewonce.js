@@ -7,9 +7,7 @@ export default {
     description: 'Automatically save view-once messages to bot DM (global)',
     category: 'Owner',
     ownerOnly: true,
-    get usage() {
-        return `${getPrefix()}antiviewonce <on/off>`;
-    },
+    usage: 'antiviewonce <on/off>',
 
     async execute(sock, m, args, ctx) {
         const action = args[0]?.toLowerCase();
