@@ -5,7 +5,7 @@ export default {
     command: 'fakequote',
     aliases: ['fc', 'quote'],
     description: 'Generate a fake WhatsApp quote image',
-    category: 'Tools',
+    category: 'General',
     ownerOnly: false,
     usage: 'fakequote <text> OR reply to a message',
 
@@ -15,9 +15,15 @@ export default {
         // 1. Resolve the text
         let text = args.join(' ').trim();
         
-        // If no text was typed, check if they replied to a message
-        if (!text && ctx.quoted && ctx.quoted.text) {
-            text = ctx.quoted.text;
+        // If no text was typed, dig into the quoted message directly
+        if (!text && ctx.quoted) {
+            const qMsg = ctx.quoted.message;
+            text = qMsg?.conversation 
+                || qMsg?.extendedTextMessage?.text 
+                || qMsg?.imageMessage?.caption 
+                || qMsg?.videoMessage?.caption
+                || qMsg?.documentMessage?.caption
+                || '';
         }
 
         if (!text) {
