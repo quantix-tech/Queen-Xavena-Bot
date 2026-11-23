@@ -1,38 +1,56 @@
 import { getGroupFeature, setGroupFeature } from '../../handlers/features.js';
 import { getGroupMetadata, isSenderAdmin } from '../../lib/utils.js';
+import { getPrefix } from '../../lib/config.js';
 
 export default {
     command: 'antigcstatus',
-    description: 'Delete group status updates automatically',
+    description: 'Delete or kick users posting group statuses',
     category: 'Group',
     ownerOnly: false,
-    usage: 'antigcstatus <on/off>',
+    usage: 'antigcstatus <off|delete|kick>',
 
     async execute(sock, m, args, ctx) {
-        if (!m.key.remoteJid.endsWith('@g.us')) return ctx.reply('❌ Group only.');
-        
-        try {
-            const metadata = await getGroupMetadata(sock, m.key.remoteJid);
-            const isSender = await isSenderAdmin(sock, m.key.remoteJid, m.key.participant, metadata);
-            
-            if (!isSender) {
-                return ctx.reply('❌ Admins only.');
-            }
+        const jid = m.key.remoteJid;
+        const prefix = getPrefix();
 
-            const action = args[0]?.toLowerCase();
-            if (action === 'on') {
-                setGroupFeature(m.key.remoteJid, 'antigcstatus', true);
-                await ctx.reply('✅ *Anti-GC Status Enabled*');
-            } else if (action === 'off') {
-                setGroupFeature(m.key.remoteJid, 'antigcstatus', false);
-                await ctx.reply('❌ *Anti-GC Status Disabled*');
-            } else {
-                const status = getGroupFeature(m.key.remoteJid, 'antigcstatus');
-                ctx.reply(`*Anti-GC Status*\nStatus: ${status ? 'ON' : 'OFF'}\nUsage: .antigcstatus on/off`);
-            }
-        } catch (err) {
-            console.error('Antigcstatus error:', err);
-            await ctx.reply(`❌ Error: ${err.message}`);
+        if (!jid.endsWith('@g.us')) {
+            return ctx.reply('❌ This command only works in groups.');
         }
+
+        const metadata = await getGroupMetadata(sock, jid);
+        if (!(await isSenderAdmin(sock, jid, m.key.participant, metadata))) {
+            return ctx.reply('❌ Admin only.');
+        }
+
+        const action = args[0]?.toLowerCase();
+        const current = getGroupFeature(jid, 'antigcstatus') || 'off';
+
+        if (!action) {
+            return ctx.reply(
+                `📵 *Anti-GC Status*\n\n` +
+                `*Current:* ${current.toUpperCase()}\n\n` +
+                `*Usage:*\n` +
+                `\`${prefix}antigcstatus off\` — disabled\n` +
+                `\`${prefix}antigcstatus delete\` — delete status messages\n` +
+                `\`${prefix}antigcstatus kick\` — delete + kick the sender`
+            );
+        }
+
+        if (action === 'off') {
+            setGroupFeature(jid, 'antigcstatus', 'off');
+            return ctx.reply('❌ *Anti-GC Status Disabled*\n\nGroup statuses are now allowed.');
+        }
+
+        if (action === 'delete') {
+            setGroupFeature(jid, 'antigcstatus', 'delete');
+            return ctx.reply('🗑️ *Anti-GC Status: DELETE*\n\nGroup statuses will be deleted automatically.');
+        }
+
+        if (action === 'kick') {
+            setGroupFeature(jid, 'antigcstatus', 'kick');
+            return ctx.reply('🚫 *Anti-GC Status: KICK*\n\nGroup statuses will be deleted and the sender removed.');
+        }
+
+        return ctx.reply(`❌ Invalid option. Use \`${prefix}antigcstatus off|delete|kick\``);
     }
 };
