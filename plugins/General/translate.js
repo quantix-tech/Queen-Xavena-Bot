@@ -19,7 +19,6 @@ export default {
 
         let textToTranslate = args.slice(1).join(' ');
         
-        // If no text provided in args, check if they replied to a message
         if (!textToTranslate && ctx.quoted) {
             textToTranslate = ctx.quoted.text;
         }
