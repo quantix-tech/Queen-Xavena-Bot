@@ -1,4 +1,4 @@
-import { addActivity } from '../activity.js';
+import { trackMessage } from '../activity.js';
 import { getPrefix } from '../../lib/config.js';
 
 export default function (sock) {
@@ -16,10 +16,10 @@ export default function (sock) {
             const text = m.message?.conversation || m.message?.extendedTextMessage?.text || '';
             if (prefix && text.startsWith(prefix)) continue;
 
-            // It's a normal message, track it!
+            // Track the message
             const userId = m.key.participant;
             if (userId) {
-                addActivity(m.key.remoteJid, userId);
+                trackMessage(m.key.remoteJid, userId);
             }
         }
     });
