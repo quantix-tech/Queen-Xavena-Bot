@@ -1,16 +1,11 @@
 import { getGroupFeature } from '../features.js';
 import { isBotAdmin, isSenderAdmin } from '../../lib/utils.js';
 
-
 function isGroupStatus(m) {
     if (!m?.message) return false;
-
-    
     if (m.message.groupStatus) return true;
-
-   
     if (m.message.groupStatusMessageV2) return true;
-
+    if (m.message.groupStatusMessage) return true;
     return false;
 }
 
@@ -25,8 +20,8 @@ export default function (sock) {
                 if (!m.key.remoteJid.endsWith('@g.us')) continue;
                 if (m.key.fromMe) continue;
 
-                const isEnabled = getGroupFeature(m.key.remoteJid, 'antigcstatus');
-                if (!isEnabled) continue;
+                const mode = getGroupFeature(m.key.remoteJid, 'antigcstatus');
+                if (!mode || mode === 'off') continue;
 
                 if (!isGroupStatus(m)) continue;
 
@@ -36,6 +31,7 @@ export default function (sock) {
                 const isAdmin = await isSenderAdmin(sock, m.key.remoteJid, m.key.participant);
                 if (isAdmin) continue;
 
+                // Delete the status message
                 await sock.sendMessage(m.key.remoteJid, {
                     delete: {
                         remoteJid: m.key.remoteJid,
@@ -45,10 +41,13 @@ export default function (sock) {
                     }
                 });
 
-                await sock.sendMessage(m.key.remoteJid, {
-                    text: `🚫 *GC Status Not Allowed*\n@${m.key.participant.split('@')[0]}, group statuses are disabled here.`,
-                    mentions: [m.key.participant]
-                });
+                if (mode === 'kick') {
+                    await sock.sendMessage(m.key.remoteJid, {
+                        text: `🚫 @${m.key.participant.split('@')[0]} has been removed for posting a group status.`,
+                        mentions: [m.key.participant]
+                    });
+                    await sock.groupParticipantsUpdate(m.key.remoteJid, [m.key.participant], 'remove');
+                }
             } catch (err) {
                 console.error('[antigcstatus]', err?.message || err);
             }
