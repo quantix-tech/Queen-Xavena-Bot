@@ -3,7 +3,6 @@ import { isBotAdmin, isSenderAdmin } from '../../lib/utils.js';
 import { unwrap, getType } from '../../lib/message.js';
 import { delay } from '@itsliaaa/baileys';
 
-// Multi-layer detection for group statuses
 function isGroupStatus(m) {
     if (!m?.message) return false;
 
@@ -12,7 +11,7 @@ function isGroupStatus(m) {
     if (m.message.groupStatusMessageV2) return true;
     if (m.message.groupStatusMessage) return true;
 
-   
+    // 2. Unwrap and check contextInfo
     const inner = unwrap(m.message) || m.message;
     const type = getType(inner);
     if (!type) return false;
@@ -20,15 +19,12 @@ function isGroupStatus(m) {
     const ctxInfo = inner[type]?.contextInfo;
     if (!ctxInfo) return false;
 
-   
-    if (ctxInfo.isGroupStatus === true) return true;
     
-  
+    if (ctxInfo.isGroupStatus === true) return true;
     if (ctxInfo.remoteJid === 'status@broadcast') return true;
-
-    // Layer 3: Check for status-specific metadata
-    if (ctxInfo.statusSourceType) return true;
-    if (ctxInfo.statusAttributions) return true;
+    
+    
+    if (ctxInfo.statusSourceType !== undefined) return true;
 
     return false;
 }
@@ -47,21 +43,16 @@ export default function (sock) {
                 const mode = getGroupFeature(m.key.remoteJid, 'antigcstatus');
                 if (!mode || mode === 'off') continue;
 
+                // If it's not a status, skip
                 if (!isGroupStatus(m)) continue;
 
                 const isBot = await isBotAdmin(sock, m.key.remoteJid);
-                if (!isBot) {
-                    console.log('[antigcstatus] Ignored: bot is not admin.');
-                    continue;
-                }
+                if (!isBot) continue;
 
                 const isAdmin = await isSenderAdmin(sock, m.key.remoteJid, m.key.participant);
-                if (isAdmin) {
-                    console.log('[antigcstatus] Ignored: sender is an admin.');
-                    continue;
-                }
+                if (isAdmin) continue;
 
-                // Delete the status message
+               
                 try {
                     await sock.sendMessage(m.key.remoteJid, { delete: m.key });
                     console.log(`[antigcstatus] Deleted status from ${m.key.participant}`);
@@ -69,15 +60,13 @@ export default function (sock) {
                     console.error('[antigcstatus] Delete failed:', delErr.message);
                 }
 
-                // Kick if mode is 'kick'
+              
                 if (mode === 'kick' || mode === true) {
                     await delay(500);
-                    
                     await sock.sendMessage(m.key.remoteJid, {
                         text: `🚫 @${m.key.participant.split('@')[0]} has been removed for posting a group status.`,
                         mentions: [m.key.participant]
                     });
-                    
                     await sock.groupParticipantsUpdate(m.key.remoteJid, [m.key.participant], 'remove');
                 }
             } catch (err) {
