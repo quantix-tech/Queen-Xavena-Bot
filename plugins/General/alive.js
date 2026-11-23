@@ -1,5 +1,6 @@
 import os from 'os';
 import { getBotName } from '../../lib/config.js';
+import { getPrefix } from '../../lib/config.js';
 
 export default {
     command: 'alive',
@@ -9,6 +10,7 @@ export default {
     usage: 'alive',
 
     async execute(sock, m, args, ctx) {
+        const prefix = getPrefix();
         const ram = (os.totalmem() - os.freemem()) / (1024 * 1024);
         const uptime = process.uptime();
         const hours = Math.floor(uptime / 3600);
@@ -16,6 +18,6 @@ export default {
         const secs = Math.floor(uptime % 60);
         const botName = getBotName();
 
-        await ctx.reply(`✅ *${botName} is Alive!*\n\n*Uptime:* ${hours}h ${mins}m ${secs}s\n*RAM:* ${ram.toFixed(1)} MB\n*Prefix:* \`.\`\n\n_Type .menu to see commands_`);
+        await ctx.reply(`✅ *${botName} is Alive!*\n\n*Uptime:* ${hours}h ${mins}m ${secs}s\n*RAM:* ${ram.toFixed(1)} MB\n*Prefix:* \`${prefix}\`\n\n_Type .menu to see commands_`);
     }
 };
