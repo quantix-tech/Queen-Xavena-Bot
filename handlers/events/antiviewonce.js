@@ -1,7 +1,3 @@
-// Queen Xavena — automatic view-once saver.
-// Fires on every incoming message when the global 'antiviewonce' flag is ON.
-// Saves view-once media silently to the bot's own DM.
-
 import { getGlobalFeature } from '../features.js';
 import { getRealJid, extractRawId } from '../../lib/utils.js';
 import { unwrap, getType } from '../../lib/message.js';
@@ -26,7 +22,12 @@ function findViewOnce(message) {
 
 export default function (sock) {
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
-        if (type !== 'notify' || !getGlobalFeature('antiviewonce')) return;
+        if (type !== 'notify') return;
+        
+        // Debug 1: Is the toggle ON?
+        const isOn = getGlobalFeature('antiviewonce');
+        if (!isOn) return; 
+
         if (!Array.isArray(messages)) return;
 
         for (const m of messages) {
@@ -34,48 +35,59 @@ export default function (sock) {
                 if (!m?.message || !m.key?.remoteJid) continue;
                 if (m.key.fromMe) continue;
 
+                // Debug 2: Is it a view once?
                 const inner = findViewOnce(m.message);
-                if (!inner) continue;
+                if (!inner) continue; // Normal message, ignore.
 
-                const type_ = getType(inner);
-                if (!['imageMessage', 'videoMessage', 'audioMessage'].includes(type_)) continue;
+                const innerType = getType(inner);
+                console.log(`\n[DEBUG-AVO] Found ViewOnce! Type: ${innerType}`);
+                
+                if (!['imageMessage', 'videoMessage', 'audioMessage'].includes(innerType)) {
+                    console.log(`[DEBUG-AVO] Unsupported type: ${innerType}`);
+                    continue;
+                }
 
-                // Prefer the stored original (needed for decryption)
                 const stored = getStored(m.key) || m.message;
 
+                console.log(`[DEBUG-AVO] Attempting download...`);
                 const buffer = await downloadMediaMessage(
                     { key: m.key, message: stored },
                     'buffer',
                     {},
                     { logger: silentLogger, reuploadRequest: msg => sock.updateMediaMessage(msg) }
-                ).catch(() => null);
+                ).catch((err) => {
+                    console.log(`[DEBUG-AVO] Download FAILED:`, err.message);
+                    return null;
+                });
 
-                if (!buffer?.length) continue;
+                if (!buffer?.length) {
+                    console.log(`[DEBUG-AVO] Buffer is empty or null.`);
+                    continue;
+                }
+
+                console.log(`[DEBUG-AVO] Download SUCCESS! Buffer size: ${buffer.length} bytes.`);
 
                 const senderJid = m.key.participant || m.key.remoteJid;
                 const realNumber = await getRealJid(senderJid, sock);
                 const senderName = m.pushName || realNumber || 'Unknown';
-                const origin = m.key.remoteJid.endsWith('@g.us')
-                    ? `Group: ${String(m.key.remoteJid).split('@')[0]}`
-                    : 'DM';
-
-                const caption =
-                    `🔓 *View-Once ${type_.replace('Message', '')}*\n` +
-                    `From: ${senderName} (+${realNumber})\n` +
-                    `Origin: ${origin}`;
-
+                const origin = m.key.remoteJid.endsWith('@g.us') ? 'Group' : 'DM';
                 const botJid = extractRawId(sock.user.id) + '@s.whatsapp.net';
 
-                if (type_ === 'imageMessage') {
+                const caption = `🔓 *View-Once ${innerType.replace('Message', '')}*\nFrom: ${senderName}\nOrigin: ${origin}`;
+
+                if (innerType === 'imageMessage') {
                     await sock.sendMessage(botJid, { image: buffer, caption });
-                } else if (type_ === 'videoMessage') {
+                } else if (innerType === 'videoMessage') {
                     await sock.sendMessage(botJid, { video: buffer, caption });
                 } else {
                     await sock.sendMessage(botJid, { audio: buffer, mimetype: 'audio/mpeg', ptt: true });
                     await sock.sendMessage(botJid, { text: caption });
                 }
+                
+                console.log(`[DEBUG-AVO] Saved to bot DM successfully.`);
+
             } catch (err) {
-                console.error('[antiviewonce]', err?.message || err);
+                console.error('[antiviewonce] Error:', err?.message || err);
             }
         }
     });
