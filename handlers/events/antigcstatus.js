@@ -1,5 +1,6 @@
 import { getGroupFeature } from '../features.js';
 import { isBotAdmin, isSenderAdmin } from '../../lib/utils.js';
+import { delay } from '@itsliaaa/baileys';
 
 function isGroupStatus(m) {
     if (!m?.message) return false;
@@ -26,26 +27,35 @@ export default function (sock) {
                 if (!isGroupStatus(m)) continue;
 
                 const isBot = await isBotAdmin(sock, m.key.remoteJid);
-                if (!isBot) continue;
+                if (!isBot) {
+                    console.log('[antigcstatus] Ignored: bot is not admin.');
+                    continue;
+                }
 
                 const isAdmin = await isSenderAdmin(sock, m.key.remoteJid, m.key.participant);
-                if (isAdmin) continue;
+                if (isAdmin) {
+                    console.log('[antigcstatus] Ignored: sender is an admin.');
+                    continue;
+                }
 
-                // Delete the status message
-                await sock.sendMessage(m.key.remoteJid, {
-                    delete: {
-                        remoteJid: m.key.remoteJid,
-                        fromMe: false,
-                        id: m.key.id,
-                        participant: m.key.participant
-                    }
-                });
+              
+                try {
+                    await sock.sendMessage(m.key.remoteJid, { delete: m.key });
+                    console.log(`[antigcstatus] Deleted status from ${m.key.participant}`);
+                } catch (delErr) {
+                    console.error('[antigcstatus] Delete failed:', delErr.message);
+                }
 
-                if (mode === 'kick') {
+              
+                if (mode === 'kick' || mode === true) {
+                  
+                    await delay(500); // slight delay so the delete settles first
+                    
                     await sock.sendMessage(m.key.remoteJid, {
                         text: `🚫 @${m.key.participant.split('@')[0]} has been removed for posting a group status.`,
                         mentions: [m.key.participant]
                     });
+                    
                     await sock.groupParticipantsUpdate(m.key.remoteJid, [m.key.participant], 'remove');
                 }
             } catch (err) {
