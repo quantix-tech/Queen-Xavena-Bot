@@ -23,6 +23,7 @@ import { isBanned } from './handlers/bans.js';
 import { getStickerHash, getBoundCommand } from './handlers/stickers.js';
 import { isShadowbanned } from './handlers/shadowban.js';
 import { addToCache } from './handlers/cache.js';
+import { getStored } from './lib/vvstore.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const EVENTS_DIR = path.join(__dirname, 'handlers', 'events');
@@ -112,11 +113,15 @@ async function connect() {
         version,
         auth: state,
         logger,
-        browser: Browsers.macOS('Chrome'),
+        // Web identity while pairing, Android once registered.
+        // Android is what allows view-once payloads through — Web/Desktop gets a stub.
+        browser: state.creds.registered
+            ? Browsers.android('13')
+            : Browsers.macOS('Chrome'),
         markOnlineOnConnect: false,
         generateHighQualityLinkPreview: false,
         defaultQueryTimeoutMs: 60000,
-        getMessage: async () => ({ conversation: getBotName() })
+        getMessage: async (key) => getStored(key) ?? { conversation: getBotName() }
     });
 
     const originalSend = sock.sendMessage;
