@@ -1,4 +1,4 @@
-import { Jimp, loadFont, HorizontalAlign, VerticalAlign } from 'jimp';
+import { Jimp, loadFont } from 'jimp';
 import { SANS_32_WHITE } from 'jimp/fonts';
 import { getPrefix } from '../../lib/config.js';
 
@@ -41,21 +41,24 @@ export default {
                 }
             }
 
+            // 1. Get profile picture
             let ppBuffer;
             try {
                 const ppUrl = await sock.profilePictureUrl(jid, 'image');
                 ppBuffer = Buffer.from(await (await fetch(ppUrl)).arrayBuffer());
             } catch (e) {
-                ppBuffer = await new Jimp({ width: 200, height: 200, color: 0xccccccff }).getBufferAsync('image/png');
+                // Fallback blank image
+                const blank = new Jimp({ width: 200, height: 200, color: 0xccccccff });
+                ppBuffer = await blank.getBuffer('image/png');
             }
 
+            // 2. Setup Canvas (Jimp v1 syntax)
             const canvasWidth = 800;
             const canvasHeight = 400;
-            const image = new Jimp({ width: canvasWidth, height: canvasHeight, color: 0x0b141aff });
+            const image = new Jimp({ width: canvasWidth, height: canvasHeight, color: 0x0b141aff }); // Dark background
 
-            const font = await loadFont(SANS_32_WHITE);
-
-            const bubbleColor = 0x005c4bff;
+            // Draw bubble using scan
+            const bubbleColor = 0x005c4bff; // Green
             image.scan(50, 50, 700, 300, function (x, y, idx) {
                 this.bitmap.data[idx + 0] = (bubbleColor >> 24) & 0xff;
                 this.bitmap.data[idx + 1] = (bubbleColor >> 16) & 0xff;
@@ -63,10 +66,14 @@ export default {
                 this.bitmap.data[idx + 3] = bubbleColor & 0xff;
             });
 
+            // 3. Draw Profile Picture
             const pp = await Jimp.read(ppBuffer);
             pp.circle();
             pp.resize({ w: 80, h: 80 });
             image.composite(pp, 70, 70);
+
+            // 4. Load Font and Draw Text
+            const font = await loadFont(SANS_32_WHITE);
 
             image.print({
                 font,
@@ -83,15 +90,15 @@ export default {
                 text: text,
             });
 
-            const timeFont = await loadFont(SANS_32_WHITE);
             image.print({
-                font: timeFont,
+                font,
                 x: 650,
                 y: 310,
                 text: '12:00',
             });
 
-            const finalBuffer = await image.getBufferAsync('image/png');
+            // 5. Convert to Buffer (Jimp v1 syntax)
+            const finalBuffer = await image.getBuffer('image/png');
 
             await sock.sendMessage(m.key.remoteJid, {
                 image: finalBuffer,
