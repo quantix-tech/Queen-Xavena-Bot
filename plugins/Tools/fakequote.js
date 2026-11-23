@@ -11,23 +11,28 @@ export default {
 
     async execute(sock, m, args, ctx) {
         const prefix = getPrefix();
-        let text = args.join(' ');
         
-        if (!text && ctx.quoted) {
+        // 1. Resolve the text
+        let text = args.join(' ').trim();
+        
+        // If no text was typed, check if they replied to a message
+        if (!text && ctx.quoted && ctx.quoted.text) {
             text = ctx.quoted.text;
         }
 
         if (!text) {
-            return ctx.reply(`❌ Provide some text, or reply to a message you want to quote.\n\n*Example:* \`${prefix}fakequote I am the greatest\``);
+            return ctx.reply(`❌ Provide some text, or reply to a message you want to quote.\n\n*Example:*\n\`${prefix}fakequote I am the greatest\`\nOr reply to a message with \`${prefix}fakequote\``);
         }
 
         try {
             await ctx.react('⏳');
 
+            // 2. Resolve who to quote
             let name = m.pushName || 'User';
-            let jid = m.key.remoteJid;
+            let jid = m.key.participant || m.key.remoteJid; // Default to sender
             
             if (ctx.quoted) {
+                // If replying, quote the person they replied to
                 jid = ctx.quoted.sender.includes('@') ? ctx.quoted.sender : ctx.quoted.sender + '@s.whatsapp.net';
                 if (m.key.remoteJid.endsWith('@g.us')) {
                     try {
@@ -40,7 +45,7 @@ export default {
                 }
             }
 
-            // 1. Get and process profile picture (Make it round)
+            // 3. Get and process profile picture (Make it round)
             let ppBase64 = '';
             try {
                 const ppUrl = await sock.profilePictureUrl(jid, 'image');
@@ -55,17 +60,16 @@ export default {
                     .toBuffer();
                 ppBase64 = roundPp.toString('base64');
             } catch (e) {
-                // If no profile pic, leave it blank (SVG will show gray circle)
+                // Fallback blank circle
             }
 
-            // 2. Escape text for SVG
+            // 4. Escape text for SVG
             const escapeSvg = (str) => String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
             
-            const safeName = escapeSvg(name.substring(0, 25)); // Truncate long names
+            const safeName = escapeSvg(name.length > 20 ? name.substring(0, 20) + '...' : name);
             const safeText = escapeSvg(text);
 
-            // 3. Create SVG template
-            // Note: We use <foreignObject> to let the SVG handle text wrapping automatically
+            // 5. Create SVG template
             const svg = `
             <svg width="800" height="400" xmlns="http://www.w3.org/2000/svg">
                 <!-- Background -->
@@ -74,7 +78,7 @@ export default {
                 <!-- Chat Bubble -->
                 <rect x="50" y="50" width="700" height="300" rx="15" fill="#005c4b" />
                 
-                <!-- Profile Picture (or gray circle if none) -->
+                <!-- Profile Picture -->
                 ${ppBase64 
                     ? `<image href="data:image/png;base64,${ppBase64}" x="70" y="70" width="80" height="80" />`
                     : `<circle cx="110" cy="110" r="40" fill="#cccccc" />`
@@ -97,7 +101,7 @@ export default {
             </svg>
             `;
 
-            // 4. Render SVG to PNG
+            // 6. Render SVG to PNG
             const finalBuffer = await sharp(Buffer.from(svg))
                 .png()
                 .toBuffer();
