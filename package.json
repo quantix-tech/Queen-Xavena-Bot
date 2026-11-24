@@ -19,7 +19,7 @@
   "license": "MIT",
   "dependencies": {
     "@google/genai": "^2.32.0",
-    "@itsliaaa/baileys": "0.3.18-final",
+    "@itsliaaa/baileys": "latest",
     "@distube/ytdl-core": "^4.14.4",
     "@hapi/boom": "^10.0.0",
     "@vitalets/google-translate-api": "^9.2.0",
