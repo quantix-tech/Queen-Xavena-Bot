@@ -21,9 +21,10 @@ export default {
         }
 
         try {
-            await sock.sendMessage(m.chat, { react: { text: '📢', key: m.key } });
+            // FIXED: same as jid.js - use m.key.remoteJid, not m.chat / ctx.chatId
+            await sock.sendMessage(m.key.remoteJid, { react: { text: '📢', key: m.key } });
 
-            const channelId = link.split('https://whatsapp.com/channel/')[1];
+            const channelId = link.split('https://whatsapp.com/channel/')[1].split('?')[0].split('/')[0];
             const channelData = await sock.newsletterMetadata("invite", channelId);
 
             await ctx.reply(`*Channel Info*\n\n*ID:* ${channelData.id}\n*Name:* ${channelData.name}\n*Followers:* ${channelData.subscribers}\n*Status:* ${channelData.state}\n*Verified:* ${channelData.verification == "VERIFIED" ? "✅ Yes" : "❌ No"}`);
