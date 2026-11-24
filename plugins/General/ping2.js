@@ -3,8 +3,8 @@ import { getPrefix } from '../../lib/config.js';
 export default {
     command: 'ping2',
     aliases: ['pingrich', 'speed2'],
-    description: 'Check bot speed with rich response',
-    category: 'General',
+    description: 'Check bot speed with interactive buttons',
+    category: 'Tools',
     ownerOnly: false,
     usage: 'ping2',
 
@@ -18,42 +18,49 @@ export default {
             const memory = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2);
 
             await sock.sendMessage(m.key.remoteJid, {
-                disclaimerText: 'Bot Status • Rich Response',
-                richResponse: [{
-                    text: '🏓 *Pong!* Bot is online',
+                text: `🏓 *Pong!* Bot is online\n\n*Ping:* ${latency}ms\n*Uptime:* ${uptime}\n*Memory:* ${memory} MB\n*Platform:* ${process.platform}`,
+                footer: 'Bot Status • Interactive',
+                optionText: '👉🏻 Select Options',
+                optionTitle: '📄 Select Options',
+                nativeFlow: [{
+                    text: '🏓 Ping Again',
+                    id: '.ping2',
+                    icon: 'review'
                 }, {
-                    language: 'javascript',
-                    code: [{
-                        highlightType: 0,
-                        codeContent: `// latency check\nconst ping = ${latency}ms;\nconsole.log("Pong! " + ping);`
-                    }]
+                    text: '📋 Menu',
+                    id: '.menu',
+                    icon: 'default'
                 }, {
-                    text: 'Here is the live status:\n'
+                    text: '📋 Copy Ping',
+                    copy: `Ping: ${latency}ms | Uptime: ${uptime}`
                 }, {
-                    title: 'Bot Performance',
-                    table: [{
-                        isHeading: true,
-                        items: ['', 'Value', 'Status']
-                    }, {
-                        isHeading: false,
-                        items: ['Ping', `${latency}ms`, '✅ Fast']
-                    }, {
-                        isHeading: false,
-                        items: ['Uptime', uptime, '✅ Online']
-                    }, {
-                        isHeading: false,
-                        items: ['Memory', `${memory} MB`, '✅ Stable']
-                    }, {
-                        isHeading: false,
-                        items: ['Platform', process.platform, '✅ Running']
-                    }]
-                }, {
-                    text: 'All systems working fine. ✨'
-                }]
-            });
+                    text: '📋 More Options',
+                    sections: [{
+                        title: '✨ Bot Options',
+                        rows: [{
+                            header: '',
+                            title: '🏓 Ping Again',
+                            description: 'Check speed again',
+                            id: '.ping2'
+                        }, {
+                            header: '',
+                            title: '🗄️ Interactive',
+                            description: 'Show interactive demo',
+                            id: '.interactive'
+                        }, {
+                            header: '',
+                            title: '📋 Menu',
+                            description: 'Show all commands',
+                            id: '.menu'
+                        }]
+                    }],
+                    icon: 'default'
+                }],
+            }, { quoted: m });
+
         } catch (e) {
-            console.error('Ping2 error:', e);
-            // Fallback if Baileys doesn't support richResponse
+            console.error('Ping2 Interactive error:', e);
+            // Fallback if interactive not supported
             await ctx.reply(`🏓 *Pong!*\n\n*Speed:* ${Date.now() - start}ms`);
         }
     }
