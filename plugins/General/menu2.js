@@ -3,6 +3,25 @@ import { getMode, getPrefix, getBotName, getMenuImage } from '../../lib/config.j
 import { isOwner, getRealJid, extractRawId } from '../../lib/utils.js';
 import { getGroupedPlugins } from '../../lib/loader.js';
 
+// 👇 Only register this listener once per bot run
+let listenerAdded = false;
+
+function parseButtonTap(msg) {
+    try {
+        if (msg?.interactiveResponseMessage) {
+            const paramsJson = msg.interactiveResponseMessage.nativeFlowResponseMessage?.paramsJson;
+            if (paramsJson) {
+                const params = JSON.parse(paramsJson);
+                if (params.id) return params.id;
+            }
+            if (msg.interactiveResponseMessage.body?.text) return msg.interactiveResponseMessage.body.text;
+        }
+        if (msg?.buttonsResponseMessage?.selectedButtonId) return msg.buttonsResponseMessage.selectedButtonId;
+        if (msg?.listResponseMessage?.singleSelectReply?.selectedRowId) return msg.listResponseMessage.singleSelectReply.selectedRowId;
+    } catch {}
+    return null;
+}
+
 export default {
     command: 'menu2',
     aliases: ['help2', 'list2'],
@@ -18,7 +37,48 @@ export default {
         const chatJid = m.key.remoteJid;
         const menuImageUrl = getMenuImage();
 
+        // 👇 FIX IN MENU2 ONLY: Listen for button taps, don't touch utils.js
+        if (!listenerAdded) {
+            listenerAdded = true;
+            sock.ev.on('messages.upsert', async ({ messages }) => {
+                for (const msg of messages) {
+                    if (!msg.message || msg.key.fromMe) continue;
+                    const tap = parseButtonTap(msg.message);
+                    if (!tap) continue;
+
+                    // 👇 Get FRESH prefix every tap - works if you change prefix
+                    const currentPrefix = getPrefix();
+                    let cmdName = '';
+
+                    if (currentPrefix && currentPrefix !== '') {
+                        if (!tap.startsWith(currentPrefix)) continue;
+                        cmdName = tap.slice(currentPrefix.length).split(' ')[0].toLowerCase();
+                    } else {
+                        // No prefix mode - tap is just "ping"
+                        cmdName = tap.split(' ')[0].toLowerCase();
+                    }
+
+                    const plugin = ctx.pluginMap.get(cmdName);
+                    if (!plugin) continue;
+
+                    const fakeCtx = {
+                        ...ctx,
+                        text: tap,
+                        args: [],
+                        pluginMap: ctx.pluginMap,
+                        reply: (t) => sock.sendMessage(msg.key.remoteJid, { text: t }, { quoted: msg }),
+                    };
+                    try {
+                        await plugin.execute(sock, msg, [], fakeCtx);
+                    } catch (e) {
+                        console.error('Menu2 button exec error:', e);
+                    }
+                }
+            });
+        }
+
         async function sendMenu(text, mentions = []) {
+            // 👇 Buttons built fresh with CURRENT prefix every time
             try {
                 await sock.sendMessage(chatJid, {
                     image: { url: menuImageUrl },
@@ -47,42 +107,32 @@ export default {
             }
         }
 
-        // ─── SUB-MENU LOGIC (e.g., .menu2 general) ───
         if (args[0]) {
             const search = args[0].toUpperCase();
             let targetCategory = null;
-
             for (const [cat, plugins] of grouped.entries()) {
                 if (cat.includes(search)) {
                     targetCategory = { name: cat, plugins };
                     break;
                 }
             }
-
-            if (!targetCategory) {
-                return ctx.reply(`❌ Category "*${args[0]}*" not found.`);
-            }
-
+            if (!targetCategory) return ctx.reply(`❌ Category "*${args[0]}*" not found.`);
             let text = `┌─〔 ✞ ${targetCategory.name.toUpperCase()} (${targetCategory.plugins.length}) 〕\n`;
             for (const p of targetCategory.plugins) {
                 text += `├◆ *${prefix}${p.command}*\n`;
             }
             text += `└─────────────◆`;
-
             return await sendMenu(text);
         }
 
-        // ─── MAIN MENU LOGIC - SAME AS YOUR MENU ───
         const ram = (os.totalmem() - os.freemem()) / (1024 * 1024);
         const timeNow = Date.now();
         const msgTime = m.messageTimestamp ? (m.messageTimestamp * 1000) : timeNow;
         const speed = Math.abs(timeNow - msgTime) || 0;
-
         const senderJid = m.key.participant || m.key.remoteJid;
         const realNumber = extractRawId(senderJid);
         const senderName = m.pushName || realNumber || 'Unknown';
         const userTag = `@${realNumber}`;
-
         const role = await isOwner(m, sock) ? 'Owner' : 'User';
         const botName = getBotName();
 
@@ -96,13 +146,11 @@ export default {
         text += `├◆ *Speed* : ${speed} ms\n`;
         text += `├◆ *RAM* : ${ram.toFixed(1)} MB\n`;
         text += `└─────────────◆\n\n`;
-
         text += `┌─〔 🔍 CATEGORIES 〕\n`;
         for (const [cat, plugins] of grouped.entries()) {
             text += `├◆ *${cat.toUpperCase()}* - ${plugins.length} Command(s)\n`;
         }
         text += `└─────────────◆\n\n`;
-
         text += `┌─〔 💡 TIP 〕\n`;
         text += `├◆ Use *${prefix}menu <category>* to view commands\n`;
         text += `└─────────────◆\n\n`;
