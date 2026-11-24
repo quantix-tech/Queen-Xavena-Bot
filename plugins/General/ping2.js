@@ -1,66 +1,60 @@
-import { getPrefix, getBotName, getMenuImage } from '../../lib/config.js';
+import { getPrefix } from '../../lib/config.js';
 
 export default {
     command: 'ping2',
     aliases: ['pingrich', 'speed2'],
-    description: 'Check bot speed with interactive buttons',
-    category: 'General',
+    description: 'Check bot speed with rich response',
+    category: 'Tools',
     ownerOnly: false,
     usage: 'ping2',
 
     async execute(sock, m, args, ctx) {
         const start = Date.now();
-        const prefix = getPrefix();
-        const botName = getBotName();
-        const menuImageUrl = getMenuImage();
-        const chatJid = m.key.remoteJid;
 
         try {
             const latency = Date.now() - start;
-            const uptime = process.uptime();
-            const days = Math.floor(uptime / 86400);
-            const hours = Math.floor((uptime % 86400) / 3600);
-            const minutes = Math.floor((uptime % 3600) / 60);
-            const seconds = Math.floor(uptime % 60);
-
-            let timeStr = '';
-            if (days > 0) timeStr += `${days}d `;
-            if (hours > 0) timeStr += `${hours}h `;
-            if (minutes > 0) timeStr += `${minutes}m `;
-            timeStr += `${seconds}s`;
-
+            const uptimeSec = Math.floor(process.uptime());
+            const uptime = `${Math.floor(uptimeSec / 3600)}h ${Math.floor((uptimeSec % 3600) / 60)}m ${uptimeSec % 60}s`;
             const memory = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2);
 
-            const text = `🏓 *${botName} Pong!*\n\n` +
-                `⚡ *Latency:* ${latency}ms\n` +
-                `⏱️ *Uptime:* ${timeStr}\n` +
-                `🧠 *Memory:* ${memory} MB\n` +
-                `📦 *Node:* ${process.version}`;
-
-            await sock.sendMessage(chatJid, {
-                image: { url: menuImageUrl },
-                caption: text,
-                footer: 'QX-CORE • Interactive',
-                optionText: '👉🏻 Select Options',
-                optionTitle: '📄 Select Options',
-                nativeFlow: [{
-                    text: '🏓 Ping',
-                    id: `${prefix}ping`,
-                    icon: 'review'
+            await sock.sendMessage(m.key.remoteJid, {
+                disclaimerText: 'Bot Status • Rich Response',
+                richResponse: [{
+                    text: '🏓 *Pong!* Bot is online',
                 }, {
-                    text: '⏱️ Runtime',
-                    id: `${prefix}runtime`,
-                    icon: 'default'
+                    language: 'javascript',
+                    code: [{
+                        highlightType: 0,
+                        codeContent: `// latency check\nconst ping = ${latency}ms;\nconsole.log("Pong! " + ping);`
+                    }]
                 }, {
-                    text: '📋 Menu',
-                    id: `${prefix}menu`,
-                    icon: 'default'
-                }],
-            }, { quoted: m });
-
+                    text: 'Here is the live status:\n'
+                }, {
+                    title: 'Bot Performance',
+                    table: [{
+                        isHeading: true,
+                        items: ['', 'Value', 'Status']
+                    }, {
+                        isHeading: false,
+                        items: ['Ping', `${latency}ms`, '✅ Fast']
+                    }, {
+                        isHeading: false,
+                        items: ['Uptime', uptime, '✅ Online']
+                    }, {
+                        isHeading: false,
+                        items: ['Memory', `${memory} MB`, '✅ Stable']
+                    }, {
+                        isHeading: false,
+                        items: ['Platform', process.platform, '✅ Running']
+                    }]
+                }, {
+                    text: 'All systems working fine. ✨'
+                }]
+            });
         } catch (e) {
             console.error('Ping2 error:', e);
-            await ctx.reply(`🏓 *Pong!*\n\n⚡ *Latency:* ${Date.now() - start}ms`);
+            // Fallback if Baileys doesn't support richResponse
+            await ctx.reply(`🏓 *Pong!*\n\n*Speed:* ${Date.now() - start}ms`);
         }
     }
 };
