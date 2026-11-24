@@ -1,6 +1,6 @@
 import os from 'os';
 import { getMode, getPrefix, getBotName, getMenuImage } from '../../lib/config.js';
-import { isOwner } from '../../lib/utils.js';
+import { isOwner, getRealJid, extractRawId } from '../../lib/utils.js';
 import { getGroupedPlugins } from '../../lib/loader.js';
 
 export default {
@@ -17,15 +17,16 @@ export default {
         const chatJid = m.key.remoteJid;
         const menuImageUrl = getMenuImage(); 
 
-        async function sendMenu(text) {
+        async function sendMenu(text, mentions = []) {
             try {
                 await sock.sendMessage(chatJid, {
                     image: { url: menuImageUrl },
-                    caption: text
+                    caption: text,
+                    mentions
                 }, { quoted: m });
             } catch (err) {
                 console.error('❌ Menu image failed to load, sending text fallback:', err.message);
-                await sock.sendMessage(chatJid, { text: text }, { quoted: m });
+                await sock.sendMessage(chatJid, { text: text, mentions }, { quoted: m });
             }
         }
         
@@ -60,14 +61,17 @@ export default {
         const msgTime = m.messageTimestamp ? (m.messageTimestamp * 1000) : timeNow;
         const speed = Math.abs(timeNow - msgTime) || 0;
 
-        const senderName = m.pushName || ctx.sender || 'Unknown';
-        const senderJid = `@${senderName}`;
+        // 👇 FIX: Resolve real JID for tagging
+        const senderJid = m.key.participant || m.key.remoteJid;
+        const realNumber = extractRawId(senderJid);
+        const senderName = m.pushName || realNumber || 'Unknown';
+        const userTag = `@${realNumber}`; // This will be clickable in WhatsApp
         
         const role = await isOwner(m, sock) ? 'Owner' : 'User';
         const botName = getBotName();
 
         let text = `┌─〔 👑 ${botName.toUpperCase()} 〕\n`;
-        text += `├◆ *User* : ${senderJid}\n`;
+        text += `├◆ *User* : ${userTag}\n`;
         text += `├◆ *Prefix* : ${prefix === '' ? '_(none)_' : prefix}\n`;
         text += `├◆ *Core* : QX-CORE\n`;
         text += `├◆ *Version* : 1.0.0\n`;
@@ -79,7 +83,6 @@ export default {
 
         text += `┌─〔 🔍 CATEGORIES 〕\n`;
         
-        // 👇 Dynamic count per category
         for (const [cat, plugins] of grouped.entries()) {
             text += `├◆ *${cat.toUpperCase()}* - ${plugins.length} Command(s)\n`;
         }
@@ -90,6 +93,7 @@ export default {
         text += `├◆ Use *${prefix}menu <category>* to view commands\n`;
         text += `└─────────────◆\n\n`;
 
-        await sendMenu(text);
+        // 👇 FIX: Pass the JID to the mentions array
+        await sendMenu(text, [senderJid]);
     }
 };
