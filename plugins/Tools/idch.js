@@ -13,32 +13,23 @@ export default {
         const link = args[0];
 
         if (!link) {
-            return ctx.reply(`📢 *Channel ID*\n\nUsage: \`${prefix}idch <channel_link>\`\nExample: \`${prefix}idch https://whatsapp.com/channel/xxxxx\``);
+            return ctx.reply(`*Channel ID*\n\n*Usage:* ${prefix}idch <channel_link>\n*Example:* ${prefix}idch https://whatsapp.com/channel/xxxxx`);
         }
 
         if (!link.includes('https://whatsapp.com/channel/')) {
-            return ctx.reply('❌ *Error*\n\nInvalid WhatsApp channel link.');
+            return ctx.reply(`❌ *Error*\n\nInvalid WhatsApp channel link.`);
         }
 
         try {
-            // Extract the channel ID from the URL
-            const channelId = link.split('https://whatsapp.com/channel/')[1].split('?')[0];
-            
-            // Fetch metadata using the invite code
+            await sock.sendMessage(ctx.chatId, { react: { text: '📢', key: m.key } });
+
+            const channelId = link.split('https://whatsapp.com/channel/')[1];
             const channelData = await sock.newsletterMetadata("invite", channelId);
 
-            const text = `📢 *Channel Info*\n\n` +
-                         `*ID:* ${channelData.id}\n` +
-                         `*Name:* ${channelData.name}\n` +
-                         `*Followers:* ${channelData.subscribers || '0'}\n` +
-                         `*Status:* ${channelData.state || 'Active'}\n` +
-                         `*Verified:* ${channelData.verification === "VERIFIED" ? "✅ Yes" : "❌ No"}`;
-
-            await ctx.reply(text);
-            
+            await ctx.reply(`*Channel Info*\n\n*ID:* ${channelData.id}\n*Name:* ${channelData.name}\n*Followers:* ${channelData.subscribers}\n*Status:* ${channelData.state}\n*Verified:* ${channelData.verification == "VERIFIED" ? "✅ Yes" : "❌ No"}`);
         } catch (error) {
-            console.error('Channel ID error:', error.message);
-            await ctx.reply(`❌ *Error*\n\nFailed to fetch channel info. Make sure the link is valid and public.`);
+            console.error('Channel ID error:', error);
+            await ctx.reply(`❌ *Error*\n\nFailed to fetch channel info.`);
         }
     }
 };
