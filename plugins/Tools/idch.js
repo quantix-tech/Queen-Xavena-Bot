@@ -10,10 +10,10 @@ export default {
 
     async execute(sock, m, args, ctx) {
         const prefix = getPrefix();
-        const link = args[0];
+        const link = args[0]?.trim();
 
         if (!link) {
-            return ctx.reply(`*Channel ID*\n\n*Usage:* ${prefix}idch <channel_link>\n*Example:* ${prefix}idch https://whatsapp.com/channel/xxxxx`);
+            return ctx.reply(`*Channel ID*\n\n*Usage:* ${prefix}idch <channel_link>\n*Example:* ${prefix}idch https://whatsapp.com/channel/0029Va...`);
         }
 
         if (!link.includes('https://whatsapp.com/channel/')) {
@@ -25,21 +25,24 @@ export default {
 
             const rawId = link.split('https://whatsapp.com/channel/')[1].split('?')[0].split('/')[0].trim();
 
+            // Invite codes are like 0029Va... - if it's all numbers, it's NOT an invite
+            if (!rawId || rawId.length < 10 || /[^A-Za-z0-9_-]/.test(rawId)) {
+                return ctx.reply(`❌ *Error*\n\nInvalid invite code: \`${rawId}\`\n\nCopy the FULL link from WhatsApp, don't type the ID manually.`);
+            }
+
             let channelData;
             try {
-                // 1. Try as invite code - 0029Va...
                 channelData = await sock.newsletterMetadata("invite", rawId);
             } catch (e) {
-                // 2. Fallback - try as JID - 120207...@newsletter
-                // This is what fixes the "91203634... is not valid JSON" crash
-                const jid = rawId.includes('@newsletter') ? rawId : rawId + '@newsletter';
-                channelData = await sock.newsletterMetadata("jid", jid);
+                // If WhatsApp says Bad Request, the invite is bad/expired/private
+                console.log('Invite failed, trying JID:', e.message);
+                channelData = await sock.newsletterMetadata("jid", rawId + '@newsletter');
             }
 
             await ctx.reply(`*Channel Info*\n\n*ID:* ${channelData.id}\n*Name:* ${channelData.name}\n*Followers:* ${channelData.subscribers}\n*Status:* ${channelData.state}\n*Verified:* ${channelData.verification == "VERIFIED" ? "✅ Yes" : "❌ No"}`);
         } catch (error) {
             console.error('Channel ID error:', error);
-            await ctx.reply(`❌ *Error*\n\nFailed to fetch channel info. Make sure the link is a real public channel link, not just the numeric ID.`);
+            await ctx.reply(`❌ *Error*\n\nFailed to fetch channel info.\nThat link is invalid, expired, or the channel is private.`);
         }
     }
 };
