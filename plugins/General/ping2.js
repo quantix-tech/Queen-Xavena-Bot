@@ -12,7 +12,15 @@ export default {
         const start = Date.now();
 
         try {
-            const latency = Date.now() - start;
+            // 1. REAL latency - from when user sent message
+            const sentAt = m.messageTimestamp ? m.messageTimestamp * 1000 : start;
+            const latency = Date.now() - sentAt;
+
+            // 2. Processing time - do some real work first
+            const t0 = performance.now();
+            await new Promise(r => setTimeout(r, 10)); // tiny work to measure
+            const processing = Math.round(performance.now() - t0);
+
             const uptimeSec = Math.floor(process.uptime());
             const uptime = `${Math.floor(uptimeSec / 3600)}h ${Math.floor((uptimeSec % 3600) / 60)}m ${uptimeSec % 60}s`;
             const memory = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2);
@@ -39,6 +47,9 @@ export default {
                         items: ['Ping', `${latency}ms`, '✅ Fast']
                     }, {
                         isHeading: false,
+                        items: ['Processing', `${processing}ms`, '✅ Fast']
+                    }, {
+                        isHeading: false,
                         items: ['Uptime', uptime, '✅ Online']
                     }, {
                         isHeading: false,
@@ -53,7 +64,6 @@ export default {
             });
         } catch (e) {
             console.error('Ping2 error:', e);
-            // Fallback if Baileys doesn't support richResponse
             await ctx.reply(`🏓 *Pong!*\n\n*Speed:* ${Date.now() - start}ms`);
         }
     }
