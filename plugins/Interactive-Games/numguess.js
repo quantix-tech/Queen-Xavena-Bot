@@ -1,26 +1,27 @@
-import { sendInteractiveHTML } from '../../lib/interactive.js';
+import { sendGameCanvas } from '../../lib/interactive.js';
+import sharp from 'sharp';
 
 const activeGames = new Map();
 
-function buildGameHTML(attempts, feedbackText) {
-    // Exact same HTML structure from your screenshot
-    return `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
-    <style>
-        *{box-sizing:border-box} html,body{margin:0;background:transparent;font-family:Arial,sans-serif}
-        body{padding:6px;background:radial-gradient(circle at 50% 5%,#174936,#061812 72%)}
-        .card{padding:14px;border:2px solid #b9954d;border-radius:16px;background:linear-gradient(145deg,#0a2e22,#123e2f 55%,#061812);color:#e3dfbb;box-shadow:inset 0 0 0 3px #163f31,0 7px 18px #000b}
-        .title{text-align:center;color:#f1e3a2;font:bold 17px Arial Black,sans-serif;letter-spacing:.7px}
-        .rule{height:2px;margin:9px 0;background:linear-gradient(90deg,transparent,#b9954d,transparent)}
-        .body{white-space:pre-wrap;overflow-wrap:anywhere;color:#e8f4e5;font:13px/1.45 monospace}
-        .footer{margin-top:11px;text-align:center;color:#8fbea0;font:10px monospace}
-    </style></head><body>
-        <div class="card">
-            <div class="title">🎯 NUMBER GUESS</div>
-            <div class="rule"></div>
-            <div class="body">Attempts: ${attempts}\n\n${feedbackText}</div>
-            <div class="footer">QUEEN XAVENA · INTERACTIVE</div>
-        </div>
-    </body></html>`;
+// You can draw the buttons ON the canvas using SVG, 
+// but WhatsApp will still put the REAL clickable ones underneath.
+function createGameImage(attempts, feedbackText) {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800">
+      <defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#050204"/><stop offset=".5" stop-color="#5c0916"/><stop offset="1" stop-color="#180309"/></linearGradient></defs>
+      <rect width="1200" height="800" rx="40" fill="url(#bg)"/>
+      <rect x="24" y="24" width="1152" height="752" rx="34" fill="none" stroke="#ff3158" stroke-width="6"/>
+      <text x="600" y="120" text-anchor="middle" class="title">🎯 NUMBER GUESS</text>
+      <path d="M90 170H1110" stroke="#ff3158" stroke-width="3"/>
+      <text x="600" y="300" text-anchor="middle" class="stats">ATTEMPTS: ${attempts}</text>
+      <rect x="150" y="380" width="900" height="200" rx="20" fill="#100207" stroke="#ff3158" stroke-width="4"/>
+      <text x="600" y="490" text-anchor="middle" class="feedback">${feedbackText}</text>
+      <style>
+        .title{font:900 50px Arial,sans-serif;fill:#fff2f6;letter-spacing:4px}
+        .stats{font:700 40px monospace;fill:#ffc6d4;letter-spacing:2px}
+        .feedback{font:900 45px Arial,sans-serif;fill:#ffffff}
+      </style>
+    </svg>`;
+    return sharp(Buffer.from(svg)).png().toBuffer();
 }
 
 export default {
@@ -33,10 +34,9 @@ export default {
 
     async execute(sock, m, args, ctx) {
         const chatId = m.key.remoteJid;
-        
         activeGames.set(chatId, { target: Math.floor(Math.random() * 50) + 1, attempts: 0 });
 
-        const html = buildGameHTML(0, 'Make your first guess!');
+        const image = await createGameImage(0, 'Make your first guess!');
         
         const buttons = [
             { text: 'Guess 10', id: 'ng_10' },
@@ -44,6 +44,6 @@ export default {
             { text: 'Guess 40', id: 'ng_40' }
         ];
 
-        await sendInteractiveHTML(sock, chatId, m, html, buttons);
+        await sendGameCanvas({ sock, jid: chatId, quoted: m, title: 'NUMBER GUESS', imageBuffer: image, buttons });
     }
 };
