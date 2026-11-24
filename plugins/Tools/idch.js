@@ -21,16 +21,25 @@ export default {
         }
 
         try {
-            // FIXED: same as jid.js - use m.key.remoteJid, not m.chat / ctx.chatId
             await sock.sendMessage(m.key.remoteJid, { react: { text: '📢', key: m.key } });
 
-            const channelId = link.split('https://whatsapp.com/channel/')[1].split('?')[0].split('/')[0];
-            const channelData = await sock.newsletterMetadata("invite", channelId);
+            const rawId = link.split('https://whatsapp.com/channel/')[1].split('?')[0].split('/')[0].trim();
+
+            let channelData;
+            try {
+                // 1. Try as invite code - 0029Va...
+                channelData = await sock.newsletterMetadata("invite", rawId);
+            } catch (e) {
+                // 2. Fallback - try as JID - 120207...@newsletter
+                // This is what fixes the "91203634... is not valid JSON" crash
+                const jid = rawId.includes('@newsletter') ? rawId : rawId + '@newsletter';
+                channelData = await sock.newsletterMetadata("jid", jid);
+            }
 
             await ctx.reply(`*Channel Info*\n\n*ID:* ${channelData.id}\n*Name:* ${channelData.name}\n*Followers:* ${channelData.subscribers}\n*Status:* ${channelData.state}\n*Verified:* ${channelData.verification == "VERIFIED" ? "✅ Yes" : "❌ No"}`);
         } catch (error) {
             console.error('Channel ID error:', error);
-            await ctx.reply(`❌ *Error*\n\nFailed to fetch channel info.`);
+            await ctx.reply(`❌ *Error*\n\nFailed to fetch channel info. Make sure the link is a real public channel link, not just the numeric ID.`);
         }
     }
 };
