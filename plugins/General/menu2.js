@@ -3,21 +3,37 @@ import { getMode, getPrefix, getBotName, getMenuImage } from '../../lib/config.j
 import { isOwner, getRealJid, extractRawId } from '../../lib/utils.js';
 import { getGroupedPlugins } from '../../lib/loader.js';
 
-// 👇 Only register this listener once per bot run
 let listenerAdded = false;
 
+function unwrapMsg(msg) {
+    if (!msg) return null;
+    let cur = msg;
+    for (let i = 0; i < 5; i++) {
+        if (cur.ephemeralMessage?.message) cur = cur.ephemeralMessage.message;
+        else if (cur.viewOnceMessage?.message) cur = cur.viewOnceMessage.message;
+        else if (cur.viewOnceMessageV2?.message) cur = cur.viewOnceMessageV2.message;
+        else if (cur.viewOnceMessageV2Extension?.message) cur = cur.viewOnceMessageV2Extension.message;
+        else if (cur.documentWithCaptionMessage?.message) cur = cur.documentWithCaptionMessage.message;
+        else break;
+    }
+    return cur;
+}
+
 function parseButtonTap(msg) {
+    const raw = unwrapMsg(msg);
+    if (!raw) return null;
     try {
-        if (msg?.interactiveResponseMessage) {
-            const paramsJson = msg.interactiveResponseMessage.nativeFlowResponseMessage?.paramsJson;
+        if (raw.interactiveResponseMessage) {
+            const paramsJson = raw.interactiveResponseMessage.nativeFlowResponseMessage?.paramsJson;
             if (paramsJson) {
                 const params = JSON.parse(paramsJson);
                 if (params.id) return params.id;
             }
-            if (msg.interactiveResponseMessage.body?.text) return msg.interactiveResponseMessage.body.text;
+            if (raw.interactiveResponseMessage.body?.text) return raw.interactiveResponseMessage.body.text;
         }
-        if (msg?.buttonsResponseMessage?.selectedButtonId) return msg.buttonsResponseMessage.selectedButtonId;
-        if (msg?.listResponseMessage?.singleSelectReply?.selectedRowId) return msg.listResponseMessage.singleSelectReply.selectedRowId;
+        if (raw.buttonsResponseMessage?.selectedButtonId) return raw.buttonsResponseMessage.selectedButtonId;
+        if (raw.listResponseMessage?.singleSelectReply?.selectedRowId) return raw.listResponseMessage.singleSelectReply.selectedRowId;
+        if (raw.templateButtonReplyMessage?.selectedId) return raw.templateButtonReplyMessage.selectedId;
     } catch {}
     return null;
 }
@@ -37,29 +53,33 @@ export default {
         const chatJid = m.key.remoteJid;
         const menuImageUrl = getMenuImage();
 
-        // 👇 FIX IN MENU2 ONLY: Listen for button taps, don't touch utils.js
         if (!listenerAdded) {
             listenerAdded = true;
             sock.ev.on('messages.upsert', async ({ messages }) => {
                 for (const msg of messages) {
                     if (!msg.message || msg.key.fromMe) continue;
+                    const raw = unwrapMsg(msg.message);
+                    // 👇 DEBUG - check your terminal after tapping a button
+                    console.log('[MENU2 TAP] type:', Object.keys(raw || {}), 'tap:', parseButtonTap(msg.message));
+
                     const tap = parseButtonTap(msg.message);
                     if (!tap) continue;
 
-                    // 👇 Get FRESH prefix every tap - works if you change prefix
                     const currentPrefix = getPrefix();
                     let cmdName = '';
-
                     if (currentPrefix && currentPrefix !== '') {
                         if (!tap.startsWith(currentPrefix)) continue;
                         cmdName = tap.slice(currentPrefix.length).split(' ')[0].toLowerCase();
                     } else {
-                        // No prefix mode - tap is just "ping"
                         cmdName = tap.split(' ')[0].toLowerCase();
                     }
 
+                    console.log('[MENU2 TAP] running command:', cmdName);
                     const plugin = ctx.pluginMap.get(cmdName);
-                    if (!plugin) continue;
+                    if (!plugin) {
+                        console.log('[MENU2 TAP] plugin NOT FOUND for:', cmdName, 'available:', [...ctx.pluginMap.keys()].slice(0,10));
+                        continue;
+                    }
 
                     const fakeCtx = {
                         ...ctx,
@@ -78,32 +98,22 @@ export default {
         }
 
         async function sendMenu(text, mentions = []) {
-            // 👇 Buttons built fresh with CURRENT prefix every time
             try {
                 await sock.sendMessage(chatJid, {
                     image: { url: menuImageUrl },
                     caption: text,
                     footer: 'QX-CORE • Interactive',
                     mentions,
-                    optionText: '👉🏻 Select Options',
-                    optionTitle: '📄 Select Options',
-                    nativeFlow: [{
-                        text: '🏓 Ping',
-                        id: `${prefix}ping`,
-                        icon: 'review'
-                    }, {
-                        text: '⏱️ Runtime',
-                        id: `${prefix}runtime`,
-                        icon: 'default'
-                    }, {
-                        text: '📋 Menu',
-                        id: `${prefix}menu`,
-                        icon: 'default'
-                    }],
+                    buttons: [
+                        { buttonId: `${prefix}ping`, buttonText: { displayText: '🏓 Ping' }, type: 1 },
+                        { buttonId: `${prefix}runtime`, buttonText: { displayText: '⏱️ Runtime' }, type: 1 },
+                        { buttonId: `${prefix}menu`, buttonText: { displayText: '📋 Menu' }, type: 1 },
+                    ],
+                    headerType: 4,
                 }, { quoted: m });
             } catch (err) {
-                console.error('❌ Menu2 interactive failed, sending text fallback:', err.message);
-                await sock.sendMessage(chatJid, { text: text, mentions }, { quoted: m });
+                console.error('❌ Menu2 buttons failed:', err.message);
+                await sock.sendMessage(chatJid, { text: text + `\n\nTap: ${prefix}ping | ${prefix}runtime | ${prefix}menu`, mentions }, { quoted: m });
             }
         }
 
@@ -131,7 +141,6 @@ export default {
         const speed = Math.abs(timeNow - msgTime) || 0;
         const senderJid = m.key.participant || m.key.remoteJid;
         const realNumber = extractRawId(senderJid);
-        const senderName = m.pushName || realNumber || 'Unknown';
         const userTag = `@${realNumber}`;
         const role = await isOwner(m, sock) ? 'Owner' : 'User';
         const botName = getBotName();
