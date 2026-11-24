@@ -21,7 +21,7 @@ export default {
         }
 
         try {
-            await sock.sendMessage(ctx.chatId, { react: { text: '📢', key: m.key } });
+            await sock.sendMessage(m.chat, { react: { text: '📢', key: m.key } });
 
             const channelId = link.split('https://whatsapp.com/channel/')[1];
             const channelData = await sock.newsletterMetadata("invite", channelId);
