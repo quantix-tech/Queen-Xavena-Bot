@@ -177,6 +177,40 @@ async function handleConnectionUpdate(update) {
   │   Mode    : ${getMode()}                            
   └───────────────────────────────────────────┘
         `));
+
+// ─── SEND DEPLOYMENT SUCCESS MESSAGE TO OWNER ───
+try {
+    const botJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
+    const deployMsg = 
+`╭─「 *QUEEN XAVENA* 」─
+│
+│  🚀 *Deployment Successful!*
+│  I am now online and ready to serve.
+│
+│  ━━━━━━━━━━━━━━━━━━
+│  📦 *Plugins Loaded:* ${pluginMap.size}
+│  ⚙️ *Mode:* ${getMode()}
+│  🔣 *Prefix:* ${getPrefix() || '(none)'}
+│  ━━━━━━━━━━━━━━━━━━
+│
+│  ⚠️ *IMPORTANT FIRST STEP*
+│  Run this command first to load all plugins:
+│
+│  👉 *.update*
+│
+│  Do not use other commands until
+│  the update is complete.
+│
+╰─ *Powered by Queen Xavena* ─╯`;
+
+    // Wait 3 seconds to ensure connection is fully stable before sending
+    setTimeout(async () => {
+        await sock.sendMessage(botJid, { text: deployMsg });
+    }, 3000);
+} catch (err) {
+    console.error(chalk.red('[Deploy Message Error]:'), err.message);
+}
+// ─────────────────────────────────────────────────
         return;
     }
 
