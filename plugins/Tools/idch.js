@@ -185,8 +185,8 @@ async function resolveViaWeb(inviteCode) {
 }
 
 export default {
-  command: 'newsletter',
-  aliases: ['channel', 'news'],
+  command: 'idch',
+  aliases: ['channel', 'newsletter'],
   description: 'Resolve a WhatsApp channel link to its newsletter JID',
   category: 'Tools',
   usage: 'newsletter <channel link>',
