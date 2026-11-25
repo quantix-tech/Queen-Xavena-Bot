@@ -66,13 +66,32 @@ function pickVerification(meta) {
   return null;
 }
 
+// FIX: strip binary / control chars that break the JID in Baileys errors
+function cleanBinaryText(text) {
+  if (!text) return '';
+  let s = '';
+  if (Buffer.isBuffer(text)) s = text.toString('utf8');
+  else if (typeof text === 'object') {
+    try { s = JSON.stringify(text); } catch { s = String(text); }
+  } else s = String(text);
+  // Remove control chars, replacement char, and escaped \u00xx sequences
+  return s
+    .replace(/\\u00[0-9a-fA-F]{2}/g, '')
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F\uFFFD]/g, '')
+    .replace(/\\x[0-9a-fA-F]{2}/g, '');
+}
+
 function extractNewsletterJidFromText(text) {
   if (!text) return null;
-  const s = String(text);
+  const s = cleanBinaryText(text);
   const full = s.match(/(120363\d{6,})@newsletter/);
   if (full) return full[1] + '@newsletter';
   const num = s.match(/(120363\d{10,})/);
   if (num) return num[1] + '@newsletter';
+  // Last resort: digits split by junk chars - join all digit runs starting with 120363
+  const joined = s.replace(/[^0-9]/g, ' ').split(/\s+/).join('');
+  const joinedMatch = joined.match(/(120363\d{10,})/);
+  if (joinedMatch) return joinedMatch[1] + '@newsletter';
   return null;
 }
 
@@ -102,16 +121,27 @@ async function resolveViaBaileys(sock, inviteCode) {
     if (meta && meta.id) return meta;
     throw new Error('empty metadata');
   } catch (err) {
-    const fromMsg = extractNewsletterJidFromText(err && err.message);
-    let fromData = null;
-    try {
-      fromData = extractNewsletterJidFromText(err && err.data ? JSON.stringify(err.data).slice(0, 4000) : '');
-    } catch (_) {}
-    const jid = fromMsg || fromData;
-    if (jid) {
-      console.log('[Newsletter] recovered jid from mex error: ' + jid);
-      return { id: jid, name: null, subscribers: null, verification: null };
+    // Search EVERYWHERE the JID could be hiding - message, stack, data, cause
+    const candidates = [
+      err && err.message,
+      err && err.stack,
+      err && err.data,
+      err && err.cause && err.cause.message,
+      err && err.cause && err.cause.data,
+    ];
+    for (const c of candidates) {
+      const jid = extractNewsletterJidFromText(c);
+      if (jid) {
+        console.log('[Newsletter] recovered jid from baileys error: ' + jid);
+        return { id: jid, name: null, subscribers: null, verification: null };
+      }
     }
+    // Also try full stringified error (handles Buffer / nested objects)
+    try {
+      const full = JSON.stringify(err, Object.getOwnPropertyNames(err || {}));
+      const jid = extractNewsletterJidFromText(full);
+      if (jid) return { id: jid, name: null, subscribers: null, verification: null };
+    } catch (_) {}
     throw err;
   }
 }
@@ -133,6 +163,11 @@ async function resolveViaWeb(inviteCode) {
   let name = null;
   const titleMatch = text.match(/<title[^>]*>([^<]+)<\/title>/i);
   if (titleMatch) name = cleanName(titleMatch[1]);
+  // og:title fallback - whatsapp.com often puts name there
+  if (!name) {
+    const og = text.match(/property=["']og:title["']\s+content=["']([^"']+)["']/i);
+    if (og) name = cleanName(og[1]);
+  }
 
   let followersFromWeb = null;
   const followMatch = text.match(/Join\s+([\d,]+)\s+followers?/i) || text.match(/([\d,]+)\s+followers?/i);
@@ -150,8 +185,8 @@ async function resolveViaWeb(inviteCode) {
 }
 
 export default {
-  command: 'idch',
-  aliases: ['channel', 'newsletter'],
+  command: 'newsletter',
+  aliases: ['channel', 'news'],
   description: 'Resolve a WhatsApp channel link to its newsletter JID',
   category: 'Tools',
   usage: 'newsletter <channel link>',
@@ -169,12 +204,10 @@ export default {
     }
 
     let meta = null;
-    let lastErr = null;
 
     try {
       meta = await resolveViaBaileys(sock, inviteCode);
     } catch (err) {
-      lastErr = err;
       console.log('[Newsletter] baileys resolve failed: ' + err.message);
     }
 
@@ -193,7 +226,7 @@ export default {
     }
 
     if (!meta || !meta.id) {
-      return ctx.reply(`❌ *Error*\n\nCould not resolve that channel invite${lastErr && lastErr.message ? ': ' + lastErr.message : '.'}`);
+      return ctx.reply('❌ *Error*\n\nCould not resolve that channel invite. The channel may be private, deleted, or WhatsApp blocked the lookup. Try again with a different link.');
     }
 
     const verified = String(meta.verification || '').toUpperCase() === 'VERIFIED';
