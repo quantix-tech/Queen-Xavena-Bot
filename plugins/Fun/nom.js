@@ -1,7 +1,7 @@
 import { sendReaction } from '../../lib/reactions.js';
 
 export default {
-    command: ,'nom',
+    command: 'nom',
     description: 'nom someone (anime style)',
     category: 'Fun',
     ownerOnly: false,
