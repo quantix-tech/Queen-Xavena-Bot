@@ -1,44 +1,42 @@
 # 👑 Queen Xavena
 
-A WhatsApp bot built on Baileys — modular plugins, private/public modes, media handling out of the box.
+A powerful and interactive WhatsApp bot. 
+
+Queen Xavena is built to be fast, reliable, and packed with features to make your WhatsApp experience better. Whether you are using it for group management, AI chats, or interactive games, she is ready to go out of the box.
 
 ---
 
-## Features
+## ✨ What Queen Xavena Can Do
 
-- 🔌 **Session-based auth** — pair once, restart forever (as long as `session/` persists)
-- 🎨 **Auto-generated menu** — new plugins appear without touching `menu.js`
-- 🔒 **Two-mode access** — `private` (owner + sudos) or `public` (everyone)
-- 🧩 **Plugin architecture** — drop a `.js` file in `plugins/`, done
-- 🖼️ **Media pipeline** — image / video / existing sticker → sticker with pack metadata
-- 🔁 **Auto-reconnect** — exponential backoff, capped at 30s
-- 🐳 **Docker-ready** — ffmpeg pre-installed in the image
-
----
-
-## Requirements
-
-- **Node.js 20+**
-- **ffmpeg** — only for `.sticker` on video. `apt install ffmpeg` / `brew install ffmpeg`
-- A **separate WhatsApp number** for the bot (do not use your personal number)
+- 🔒 **Private & Public Modes** — Keep the bot restricted to yourself and your admins, or open it up for everyone to use.
+- 🎨 **Auto-Updating Menu** — Just type the menu command to see everything she can do. It updates automatically.
+- 🤖 **AI Integration** — Chat naturally with the bot or use AI to trigger commands without typing prefixes.
+- 🖼️ **Media Tools** — Create custom stickers, save view-once messages, and auto-download images and videos.
+- 🔁 **Always Online** — If the connection drops, the bot automatically reconnects.
+- 🎮 **Interactive Games** — Play text-based and interactive games directly in the chat.
 
 ---
 
-## Quick start
+## ⚙️ Requirements
 
-```bash
-# 1. Install
-npm install
+- **Node.js 20+** (The environment she runs on)
+- **A secondary WhatsApp number** — We highly recommend using a separate number for the bot so it doesn't interfere with your personal chats.
+- *(Note for hosters: If you plan to use the sticker features on videos, make sure `ffmpeg` is installed on your server).*
 
-# 2. Get a session
-#    Use the Queen Xavena web pair:
-#      - Pair code (phone number → 8-digit code)
-#      - QR code
-#    The session arrives in your WhatsApp DM.
+---
 
-# 3. Provide the session (pick ONE method)
-#    a) Paste into session_id.txt, OR
-#    b) export SESSION_ID='QueenXavena~...'
+## 🚀 How to Set Up
 
-# 4. Run
-npm start
+1. Get your Session ID
+Go to the official pairing website: https://queen-xavena.onrender.com
+
+· Choose Pair Code (enter your phone number to get an 8-digit code) or QR Code.
+· The website will send your Session ID to your WhatsApp DMs.
+
+2. Add the Session ID
+You only need to do one of these:
+
+· Create a file named session_id.txt and paste the Session ID inside it, OR
+· Add it to your hosting environment variables as: SESSION_ID='QueenXavena~...'
+
+3. Start the bot
