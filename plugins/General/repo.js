@@ -8,13 +8,11 @@ export default {
     usage: 'repo',
 
     async execute(sock, m, args, ctx) {
-        const REPO_URL = 'https://github.com/Quantix-tech/Queen-Xavena-Bot';
+    
         const botName = getBotName();
 
         const text = `🐙 *${botName} Repository*\n\n` +
-            `You can view the source code, report issues, or fork the project here:\n\n` +
-            `🔗 ${REPO_URL}\n\n` +
-            `_Don't forget to star the repo!_ ⭐`;
+            `Please note: The Queen Xavena repository is not publicly disclosed. For access requests, kindly contact the developer at https://t.me/dark_heart011`;
 
         await ctx.reply(text);
     }
