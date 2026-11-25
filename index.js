@@ -201,7 +201,7 @@ try {
 │  Do not use other commands until
 │  the update is complete.
 │
-╰─ *Powered by Queen Xavena* ─╯`;
+╰─ *Created by Lord Xaven* ─╯`;
 
     // Wait 3 seconds to ensure connection is fully stable before sending
     setTimeout(async () => {
