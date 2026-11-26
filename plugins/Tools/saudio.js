@@ -1,3 +1,9 @@
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import crypto from 'crypto';
+import { exec } from 'child_process';
+import axios from 'axios';
 import { Sticker, StickerTypes } from 'wa-sticker-formatter';
 import { getBotName, getPrefix } from '../../lib/config.js';
 import {
@@ -6,11 +12,6 @@ import {
   generateWAMessageFromContent,
   extractImageThumb
 } from '@itsliaaa/baileys';
-import { exec } from 'child_process';
-import fs from 'fs';
-import os from 'os';
-import path from 'path';
-import crypto from 'crypto';
 
 const pending = new Map();
 
@@ -25,7 +26,44 @@ function checkIsAnimatedWebp(buffer) {
   return false;
 }
 
-// Get quoted message the way Baileys actually stores it
+async function compressAnimatedWebp(buffer, maxSize = 950 * 1024) {
+  if (!buffer || buffer.length <= maxSize) return buffer;
+  const tmp = os.tmpdir();
+  const t = `${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+  const inPath = path.join(tmp, `in_anim_${t}.webp`);
+  const outPath = path.join(tmp, `out_anim_${t}.webp`);
+  try {
+    await fs.promises.writeFile(inPath, buffer);
+    await new Promise((res, rej) => exec(`ffmpeg -y -i "${inPath}" -vf "scale=384:384:force_original_aspect_ratio=decrease,fps=10,pad=384:384:-1:-1:color=white@0.0" -vcodec libwebp -loop 0 -ss 00:00:00 -t 00:00:03 -preset default -quality 40 -an -vsync 0 "${outPath}"`, { timeout: 30000 }, e => e ? rej(e) : res()));
+    if (fs.existsSync(outPath)) {
+      const r = await fs.promises.readFile(outPath);
+      if (r?.length) return r;
+    }
+  } catch (e) { console.error('[SAUDIO COMPRESS]', e.message); }
+  finally {
+    try { if (fs.existsSync(inPath)) fs.unlinkSync(inPath); } catch {}
+    try { if (fs.existsSync(outPath)) fs.unlinkSync(outPath); } catch {}
+  }
+  return buffer;
+}
+
+const convertAudioToOpusVN = async (buffer) => {
+  const tmp = os.tmpdir();
+  const t = `${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+  const inPath = path.join(tmp, `in_${t}.audio`);
+  const outPath = path.join(tmp, `out_${t}.ogg`);
+  try {
+    await fs.promises.writeFile(inPath, buffer);
+    await new Promise((res, rej) => exec(`ffmpeg -y -i "${inPath}" -vn -c:a libopus -b:a 64k -vbr on -compression_level 10 -ar 48000 -ac 1 "${outPath}"`, { timeout: 30000 }, e => e ? rej(e) : res()));
+    if (fs.existsSync(outPath)) return await fs.promises.readFile(outPath);
+  } catch (e) { console.error('[SAUDIO OPUS]', e.message); }
+  finally {
+    try { if (fs.existsSync(inPath)) fs.unlinkSync(inPath); } catch {}
+    try { if (fs.existsSync(outPath)) fs.unlinkSync(outPath); } catch {}
+  }
+  return buffer;
+};
+
 function getQuoted(m) {
   const info = m.message?.extendedTextMessage?.contextInfo;
   if (!info?.quotedMessage) return null;
@@ -37,132 +75,128 @@ function getQuoted(m) {
 
 function getQuotedType(m) {
   const q = getQuoted(m);
-  if (!q?.message) return '';
-  return Object.keys(q.message)[0] || '';
+  return q?.message ? Object.keys(q.message)[0] || '' : '';
 }
 
-const toOpus = async (buffer) => {
-  const tmp = os.tmpdir();
-  const t = `${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
-  const inPath = path.join(tmp, `in_${t}.audio`);
-  const outPath = path.join(tmp, `out_${t}.ogg`);
-  try {
-    await fs.promises.writeFile(inPath, buffer);
-    await new Promise((res, rej) => exec(`ffmpeg -y -i "${inPath}" -vn -c:a libopus -b:a 64k -vbr on -compression_level 10 -ar 48000 -ac 1 "${outPath}"`, { timeout: 30000 }, e => e ? rej(e) : res()));
-    if (fs.existsSync(outPath)) {
-      const out = await fs.promises.readFile(outPath);
-      if (out?.length) return out;
-    }
-  } catch (e) { console.error('[SAUDIO OPUS]', e.message); }
-  finally {
-    try { if (fs.existsSync(inPath)) fs.unlinkSync(inPath); } catch {}
-    try { if (fs.existsSync(outPath)) fs.unlinkSync(outPath); } catch {}
+async function buildSoundSticker(sock, m, stickerWebpBuffer, rawAudioBuffer, isAnimated) {
+  if (!isAnimated) isAnimated = checkIsAnimatedWebp(stickerWebpBuffer);
+  if (isAnimated && stickerWebpBuffer.length > 900 * 1024) {
+    stickerWebpBuffer = await compressAnimatedWebp(stickerWebpBuffer, 900 * 1024);
   }
-  throw new Error('ffmpeg failed to convert audio to opus');
-};
 
-async function buildSoundSticker(sock, m, stickerWebp, audioBuffer) {
-  console.log('[SAUDIO] sticker bytes:', stickerWebp?.length, 'audio bytes:', audioBuffer?.length);
-  const opus = await toOpus(audioBuffer);
-  console.log('[SAUDIO] opus bytes:', opus?.length);
+  const opusAudioBuffer = await convertAudioToOpusVN(rawAudioBuffer);
 
-  const [sMedia, aMedia] = await Promise.all([
-    prepareWAMessageMedia({ sticker: stickerWebp }, { upload: sock.waUploadToServer }),
-    prepareWAMessageMedia({ audio: opus, mimetype: 'audio/ogg; codecs=opus', ptt: true }, { upload: sock.waUploadToServer })
+  const [stickerMedia, audioMedia] = await Promise.all([
+    prepareWAMessageMedia({ sticker: stickerWebpBuffer }, { upload: sock.waUploadToServer }),
+    prepareWAMessageMedia({ audio: opusAudioBuffer, mimetype: 'audio/ogg; codecs=opus', ptt: true }, { upload: sock.waUploadToServer })
   ]);
 
-  const sMsg = sMedia.stickerMessage;
-  const aMsg = aMedia.audioMessage;
-  if (!sMsg) throw new Error('Failed to upload sticker!');
-  if (!aMsg) throw new Error('Failed to upload audio!');
+  const stickerMsg = stickerMedia.stickerMessage;
+  const audioMsg = audioMedia.audioMessage;
+  if (!stickerMsg) throw new Error('Failed to upload sticker.');
 
-  if (checkIsAnimatedWebp(stickerWebp)) {
-    sMsg.isAnimated = true;
+  if (isAnimated) {
+    stickerMsg.isAnimated = true;
     try {
-      const thumb = await extractImageThumb(stickerWebp, 64);
-      if (thumb?.buffer) sMsg.pngThumbnail = thumb.buffer;
+      const thumb = await extractImageThumb(stickerWebpBuffer, 64);
+      if (thumb?.buffer) stickerMsg.pngThumbnail = thumb.buffer;
     } catch {}
   }
-  sMsg.stickerSentTs = Date.now();
-  // THIS is the actual sound-sticker field - whole audioMessage object
-  sMsg.audioMessage = aMsg;
+  stickerMsg.stickerSentTs = Date.now();
+  if (audioMsg) {
+    audioMsg.mimetype = 'audio/ogg; codecs=opus';
+    audioMsg.ptt = true;
+    stickerMsg.audioMessage = audioMsg;
+  }
 
-  const msg = generateWAMessageFromContent(m.key.remoteJid, { stickerMessage: sMsg }, { quoted: m, userJid: sock.user.id });
+  const msg = generateWAMessageFromContent(m.key.remoteJid, { stickerMessage: stickerMsg }, { quoted: m, userJid: sock.user.id });
   await sock.relayMessage(m.key.remoteJid, msg.message, { messageId: msg.key.id });
 }
 
 export default {
   command: 'saudio',
-  aliases: ['soundsticker'],
+  aliases: ['soundsticker', 'stikersuara'],
   description: 'Combine sticker + audio into sound sticker',
   category: 'Sticker',
   ownerOnly: false,
-  usage: 'saudio (reply sticker, then reply audio)',
+  usage: 'saudio <audio url> (reply sticker) OR saudio (reply audio after saving sticker)',
 
   async execute(sock, m, args, ctx) {
     const prefix = getPrefix();
     const sender = m.key.participant || m.key.remoteJid;
     const key = `${m.key.remoteJid}:${sender}`;
-    const quotedType = getQuotedType(m); // e.g. stickerMessage, audioMessage, voice?
+    const audioUrl = args.join(' ').trim().match(/https?:\/\/[^\s]+/i)?.[0] || null;
+    const quotedType = getQuotedType(m);
     const quoted = getQuoted(m);
 
-    // STEP 2: quoted is audio / voice note + we have a saved sticker
-    const isAudioQuoted = /audio|ptt/.test(quotedType);
-    if (isAudioQuoted && pending.has(key)) {
-      const saved = pending.get(key);
-      pending.delete(key);
+    // ── MODE 1: Reply sticker + URL (original logic) ──
+    if (audioUrl) {
+      const media = await ctx.getMedia();
+      if (!media || (!media.isSticker && !media.isImage && !media.isVideo)) {
+        return ctx.reply('Reply to a sticker, image, or video that you want to add sound to.');
+      }
       try {
-        const audioBuf = await downloadMediaMessage(quoted, 'buffer', {}, { reuploadRequest: sock.updateMediaMessage });
-        if (!audioBuf?.length) return ctx.reply('Failed to download audio. Try again.');
-        await buildSoundSticker(sock, m, saved.webp, audioBuf);
+        let webp, isAnimated = false;
+        if (media.isSticker) { webp = media.buffer; isAnimated = checkIsAnimatedWebp(webp); }
+        else {
+          const s = new Sticker(media.buffer, { pack: getBotName(), author: 'Lord Xaven', type: StickerTypes.FULL, quality: 70, background: '#00000000' });
+          webp = await s.toBuffer();
+          isAnimated = media.isVideo;
+        }
+        const res = await axios.get(audioUrl, { responseType: 'arraybuffer', headers: { 'User-Agent': 'Mozilla/5.0' }, timeout: 25000 });
+        const rawAudio = Buffer.from(res.data);
+        if (!rawAudio?.length) return ctx.reply('Failed to download audio from URL.');
+        await buildSoundSticker(sock, m, webp, rawAudio, isAnimated);
       } catch (err) {
-        console.error('Saudio error:', err);
-        await ctx.reply(`Failed to combine.\nError: ${err.message}`);
+        console.error('[SAUDIO]', err);
+        await ctx.reply(`Error: ${err.message}`);
       }
       return;
     }
 
-    // STEP 1: quoted is sticker / image / video -> save it
-    // Use ctx.getMedia() exactly like your sticker.js does - it handles quoted image/video/sticker
-    const media = await ctx.getMedia();
-    if (!media) {
-      return ctx.reply(
-        `*SOUND STICKER MAKER*\n\n` +
-        `How to use:\n` +
-        `1. Reply to sticker / image / video\n` +
-        `   Type \`${prefix}saudio\`\n` +
-        `2. Then reply to audio / voice note\n` +
-        `   Type \`${prefix}saudio\` again\n\n` +
-        `Bot will combine both and send the sound sticker.`
-      );
-    }
-
-    if (!media.isSticker && !media.isImage && !media.isVideo) {
-      return ctx.reply('Reply to a sticker, image, video, or audio.');
-    }
-
-    try {
-      let webp;
-      if (media.isSticker) {
-        webp = media.buffer;
-      } else {
-        const sticker = new Sticker(media.buffer, {
-          pack: getBotName(),
-          author: 'Lord Xaven',
-          type: StickerTypes.FULL,
-          quality: 70,
-          background: '#00000000'
-        });
-        webp = await sticker.toBuffer();
+    // ── MODE 2: Reply AUDIO + no URL -> use QUOTED AUDIO as the URL buffer ──
+    // This is what you meant: quoted audio -> same convert function
+    if (/audio|ptt/.test(quotedType) && pending.has(key)) {
+      const saved = pending.get(key);
+      pending.delete(key);
+      try {
+        const rawAudio = await downloadMediaMessage(quoted, 'buffer', {}, { reuploadRequest: sock.updateMediaMessage });
+        if (!rawAudio?.length) return ctx.reply('Failed to download quoted audio.');
+        await buildSoundSticker(sock, m, saved.webp, rawAudio, saved.isAnimated);
+      } catch (err) {
+        console.error('[SAUDIO]', err);
+        await ctx.reply(`Error: ${err.message}`);
       }
-
-      pending.set(key, { webp });
-      setTimeout(() => pending.delete(key), 2 * 60 * 1000);
-
-      await ctx.reply(`*Sticker saved!*\nNow reply to the audio with \`${prefix}saudio\` to combine it.`);
-    } catch (err) {
-      console.error('Saudio save error:', err);
-      await ctx.reply(`Failed to save sticker.\nError: ${err.message}`);
+      return;
     }
+
+    // ── MODE 3: Reply sticker + no URL -> save sticker, wait for audio ──
+    const media = await ctx.getMedia();
+    if (media && (media.isSticker || media.isImage || media.isVideo)) {
+      try {
+        let webp, isAnimated = false;
+        if (media.isSticker) { webp = media.buffer; isAnimated = checkIsAnimatedWebp(webp); }
+        else {
+          const s = new Sticker(media.buffer, { pack: getBotName(), author: 'Lord Xaven', type: StickerTypes.FULL, quality: 70, background: '#00000000' });
+          webp = await s.toBuffer();
+          isAnimated = media.isVideo;
+        }
+        pending.set(key, { webp, isAnimated });
+        setTimeout(() => pending.delete(key), 2 * 60 * 1000);
+        return ctx.reply(`*Sticker saved!*\nNow reply to the audio with \`${prefix}saudio\` to combine it.\nOr reply to a sticker with \`${prefix}saudio <audio url>\``);
+      } catch (err) {
+        return ctx.reply(`Error: ${err.message}`);
+      }
+    }
+
+    // No sticker, no audio, no URL = help
+    return ctx.reply(
+      `*SOUND STICKER MAKER*\n\n` +
+      `1. Reply to sticker / image / video:\n` +
+      `   \`${prefix}saudio <audio url>\`\n\n` +
+      `2. OR reply to sticker with \`${prefix}saudio\`, then reply to audio with \`${prefix}saudio\`\n\n` +
+      `Example:\n` +
+      `\`${prefix}saudio https://cdn.example.com/sound.mp3\``
+    );
   }
 };
