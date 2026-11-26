@@ -18,6 +18,6 @@ export default {
         const secs = Math.floor(uptime % 60);
         const botName = getBotName();
 
-        await ctx.reply(`✅ *${botName} is Alive!*\n\n*Uptime:* ${hours}h ${mins}m ${secs}s\n*RAM:* ${ram.toFixed(1)} MB\n*Prefix:* \`${prefix}\`\n\n_Type .menu to see commands_`);
+        await ctx.reply(`✅ *${botName} is Alive!*\n\n*Uptime:* ${hours}h ${mins}m ${secs}s\n*RAM:* ${ram.toFixed(1)} MB\n*Prefix:* \`${prefix}\`\n\n_Type ${prefix}menu to see commands_`);
     }
 };
