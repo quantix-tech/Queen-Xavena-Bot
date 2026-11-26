@@ -1,10 +1,10 @@
 import { getPrefix } from '../../lib/config.js';
 import { createVoiceSticker } from '../../lib/voicesticker.js';
-import { generateWAMessageFromContent, proto } from '@itsliaaa/baileys';
+import { generateWAMessageFromContent } from '@itsliaaa/baileys';
 
 export default {
     command: 'vs',
-    aliases: ['voicesticker', 'audioSticker'],
+    aliases: ['voicesticker', 'audiosticker'],
     description: 'Convert a video into an audio sticker (max 7s)',
     category: 'Tools',
     ownerOnly: false,
@@ -31,20 +31,18 @@ export default {
                 throw new Error('Failed to upload media to WhatsApp.');
             }
 
-            // Set required flags
+            // ─── THE PROTO HACK ───
+            // Since @itsliaaa/baileys doesn't have AudioStickerMessage,
+            // we inject the audio directly into the sticker proto.
             stickerMessage.isAnimated = true;
             audioMessage.ptt = false; 
+            stickerMessage.audioMessage = audioMessage; 
+            stickerMessage.stickerSentTs = Date.now();
 
-            // ─── THE OFFICIAL AUDIO STICKER PROTO ───
-            const audioStickerMessage = proto.Message.AudioStickerMessage.fromObject({
-                stickerMessage: stickerMessage,
-                audioMessage: audioMessage
-            });
-
-            // Send via relay
+            // Send via relay as a standard stickerMessage
             const msg = generateWAMessageFromContent(
                 m.key.remoteJid,
-                { audioStickerMessage: audioStickerMessage },
+                { stickerMessage: stickerMessage },
                 { quoted: m, userJid: sock.user.id }
             );
 
