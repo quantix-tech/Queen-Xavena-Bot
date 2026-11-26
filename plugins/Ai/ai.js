@@ -3,7 +3,7 @@ import { getPrefix } from '../../lib/config.js';
 
 export default {
     command: 'ai',
-    aliases: ['ask', 'xavena'],
+    aliases: ['ask'],
     description: 'Ask the AI a question directly',
     category: 'AI',
     ownerOnly: false,
