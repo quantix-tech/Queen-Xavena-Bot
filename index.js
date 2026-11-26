@@ -221,7 +221,6 @@ async function handleMessage(m) {
     const firstWord = currentPrefix ? rawText.slice(currentPrefix.length).trim().split(/\s+/)[0].toLowerCase() : rawText.trim().split(/\s+/)[0].toLowerCase();
     const isCommand = currentPrefix ? (rawText.startsWith(currentPrefix) && pluginMap.has(firstWord)) : pluginMap.has(firstWord);
 
-    // ─── AI ROUTING (No Prefix) ───
     if (!isCommand && rawText.trim()) {
         if (m.key.fromMe) {
             if (sentMessageIds.has(m.key.id)) { sentMessageIds.delete(m.key.id); return; }
@@ -233,44 +232,38 @@ async function handleMessage(m) {
         else if (isSud) role = 'Sudo Admin';
         const chatType = jid.endsWith('@g.us') ? 'Group Chat' : 'Private DM';
         const pushName = m.pushName || 'User';
-
-        const isNlpTrigger = /\bxavena\b/i.test(rawText);
+        const isNlpTrigger = /\bxavena\b/i.test(rawText); 
         const nlpMode = getNlpMode();
-        const chatbotMode = getChatbotMode();
-
-        // ─── NLP FIRST - ONLY IF IT'S A REAL COMMAND ───
         if (nlpMode && isNlpTrigger) {
             const cleanText = rawText.replace(/\bxavena\b/gi, '').replace(/^[,.\s]+|[,.\s]+$/g, '').trim();
             if (cleanText) {
                 if (getMode() === 'private' && !isOwn && !isSud) return;
                 const availableCmds = Array.from(pluginMap.keys());
                 const intent = await parseCommandIntent(cleanText, availableCmds);
-
-                // Only if NLP found a REAL command - handle it and STOP, don't let chatbot also reply
                 if (intent && intent.command && pluginMap.has(intent.command)) {
                     const plugin = pluginMap.get(intent.command);
                     const ctx = await buildContext(sock, m);
                     if (ctx) {
                         const intentArgs = Array.isArray(intent.args) ? intent.args.join(' ') : '';
                         ctx.text = `${currentPrefix || '.'}${intent.command} ${intentArgs}`.trim();
-const [cmdRaw, ...nlpArgs] = ctx.text.slice((currentPrefix || '.').length).trim().split(/\s+/);
+                        const [cmdRaw, ...args] = ctx.text.slice((currentPrefix || '.').length).trim().split(/\s+/);
                         const check = await canUse(m, plugin, sock);
                         if (check.ok) {
                             ctx.pluginMap = pluginMap;
-                            await plugin.execute(sock, m, nplargs, ctx);
-                            // Simple confirm, DON'T call getChatbotResponse here - it pollutes memory
-                            await sock.sendMessage(jid, { text: `Done, done ✅` }, { quoted: m });
+                            await plugin.execute(sock, m, args, ctx);
+                            const confirmPrompt = `You are Queen Xavena. The user told you: "${rawText}". You just successfully executed the "${intent.command}" command for them. Give a very short, natural confirmation in your persona.`;
+                            const aiReply = await getChatbotResponse(confirmPrompt, pushName, role, chatType, jid);
+                            if (aiReply) { await sock.sendMessage(jid, { text: aiReply }, { quoted: m }); }
                             return;
                         }
                     }
                 }
-                // If intent is null (e.g. "Xavena how far?") -> fall through to chatbot below, don't return
             }
         }
 
-        // ─── CHATBOT SECOND - ONLY FOR CHAT ───
+        const chatbotMode = getChatbotMode();
         if (chatbotMode) {
-            if (getMode() === 'private' && !isOwn && !isSud) return;
+            if (getMode() === 'private' && !isOwn && !isSud) return; 
 
             if (jid.endsWith('@g.us')) {
                 const botNumber = extractRawId(sock.user.id);
