@@ -6,7 +6,8 @@ import axios from 'axios';
 import { getPrefix } from '../../lib/config.js';
 import { ffmpegBin, toOpusVoice } from '../../lib/audioConvert.js';
 import { selfTest, buildAudioSticker } from '../../lib/audioSticker.js';
-import { setAwait } from '../../lib/awaits.js'; // <-- Import the new helper
+import { setAwait } from '../../lib/awaits.js';
+import { extractRawId } from '../../lib/utils.js';
 import crypto from 'crypto';
 
 const MAX_SEC = 6;
