@@ -6,12 +6,14 @@ import axios from 'axios';
 import { getPrefix } from '../../lib/config.js';
 import { ffmpegBin, toOpusVoice } from '../../lib/audioConvert.js';
 import { selfTest, buildAudioSticker } from '../../lib/audioSticker.js';
-import { setAwait } from '../../lib/awaits.js';
-import { extractRawId } from '../../lib/utils.js'; 
+import { extractRawId } from '../../lib/utils.js';
 import crypto from 'crypto';
 
 const MAX_SEC = 6;
 const MAX_BYTES = 900 * 1024;
+
+// Manual memory to hold the sticker waiting for its audio
+const pendingStickers = new Map();
 
 const tmp = (ext) => path.join(os.tmpdir(), `saudio_${Date.now()}_${Math.random().toString(36).slice(2)}${ext}`);
 const rm = (...f) => f.forEach(x => { try { fs.unlinkSync(x); } catch { } });
@@ -116,29 +118,63 @@ export default {
     async execute(sock, m, args, ctx) {
         const prefix = getPrefix();
         const jid = m.key.remoteJid;
+        const senderId = extractRawId(m.key.participant || m.key.remoteJid);
         const url = args.find(a => /^https?:\/\//i.test(a));
         
-        const pending = await import('../../lib/awaits.js').then(mod => mod.getAwait(jid, extractRawId(m.key.participant || m.key.remoteJid)));
-        if (pending && pending.command === 'saudio') {
-            return ctx.reply(`⏳ Please reply with an *audio file*, *voice note*, or an *audio link* to finish the sticker.`);
+        // Check if this user is in the "waiting for audio" step
+        const pending = pendingStickers.get(jid);
+        if (pending && pending.userId === senderId) {
+            const isAudio = m.message?.audioMessage || ctx.quoted?.type === 'audioMessage' || m.message?.extendedTextMessage?.contextInfo?.quotedMessage?.audioMessage;
+            
+            if (!url && !isAudio) {
+                return ctx.reply(`⏳ Please reply to an *audio file*, *voice note*, or provide an *audio link* along with \`${prefix}saudio\`.`);
+            }
+
+            await ctx.react('⏳');
+            try {
+                let audioSource;
+                if (url) {
+                    const r = await axios.get(url, { responseType: 'arraybuffer', timeout: 25000, maxContentLength: 15 * 1024 * 1024, headers: { 'User-Agent': 'Mozilla/5.0' } });
+                    audioSource = Buffer.from(r.data);
+                } else {
+                    const media = await ctx.getMedia();
+                    if (!media || !media.buffer) throw new Error('Could not download the audio.');
+                    audioSource = media.buffer;
+                }
+
+                await processAndSend(sock, m, ctx, pending.stickerBuffer, audioSource);
+                pendingStickers.delete(jid);
+                await ctx.react('✅');
+            } catch (e) {
+                console.error('[saudio step 2]', e);
+                await ctx.react('❌');
+                await ctx.reply(`❌ Failed: ${e.message}`);
+            }
+            return;
         }
 
-        // 👇 USE ctx.quoted AND ctx.getMedia() TO DETECT THE STICKER/VIDEO 👇
+        // ─── STEP 1: INITIAL COMMAND ───
         let stickerBuffer = null;
+        let videoBuffer = null;
         let typeFound = null;
 
         if (ctx.quoted) {
-            if (ctx.quoted.type === 'stickerMessage') typeFound = 'sticker';
-            else if (ctx.quoted.type === 'imageMessage') typeFound = 'image';
-            else if (ctx.quoted.type === 'videoMessage') typeFound = 'video';
+            const mime = ctx.quoted.message?.videoMessage?.mimetype || ctx.quoted.message?.stickerMessage?.mimetype || ctx.quoted.type;
+            
+            if (ctx.quoted.type === 'videoMessage' || mime?.includes('video')) typeFound = 'video';
+            else if (ctx.quoted.type === 'imageMessage' || mime?.includes('image')) typeFound = 'image';
+            else if (ctx.quoted.type === 'stickerMessage' || mime?.includes('webp')) typeFound = 'sticker';
             
             if (typeFound) {
                 const media = await ctx.getMedia();
                 if (media && media.buffer) {
-                    if (typeFound === 'sticker') {
+                    if (typeFound === 'video') {
+                        videoBuffer = media.buffer; // Save the raw video to extract audio later
+                        stickerBuffer = await toWebp(media.buffer, 'video');
+                    } else if (typeFound === 'sticker') {
                         stickerBuffer = media.buffer;
                     } else {
-                        stickerBuffer = await toWebp(media.buffer, typeFound);
+                        stickerBuffer = await toWebp(media.buffer, 'image');
                     }
                     try { stickerBuffer = await addExif(stickerBuffer, 'Queen Xavena', 'Sound Sticker'); } catch (e) {}
                 }
@@ -146,10 +182,25 @@ export default {
         }
 
         if (!stickerBuffer) {
-            return ctx.reply(`*SOUND STICKER*\n\n• Reply to a *video/GIF/Sticker/Photo* with \`${prefix}saudio\`\n   -> Bot will save it, then ask for audio.\n\n• Or reply with \`${prefix}saudio <audio link>\`\n   -> Bot will merge immediately.`);
+            return ctx.reply(`*SOUND STICKER*\n\n• Reply to a *video/GIF/Sticker/Photo* with \`${prefix}saudio\`\n   -> Bot will save it.\n\n• Or reply with \`${prefix}saudio <audio link>\`\n   -> Bot will merge immediately.`);
         }
 
-        // If they provided a link directly, do it in one step
+        // If it's a video, we just use the video's own audio!
+        if (typeFound === 'video') {
+            await ctx.react('⏳');
+            try {
+                // Since the video already has sound, we just pass the video buffer directly to the audio converter
+                await processAndSend(sock, m, ctx, stickerBuffer, videoBuffer);
+                await ctx.react('✅');
+            } catch (e) {
+                console.error('[saudio video]', e);
+                await ctx.react('❌');
+                await ctx.reply(`❌ Failed: ${e.message}`);
+            }
+            return;
+        }
+
+        // If they provided an audio link directly, do it in one step
         if (url) {
             await ctx.react('⏳');
             try {
@@ -164,51 +215,18 @@ export default {
             return;
         }
 
-        // Save for 2-step process
+        // Save for 2-step process (Only for Stickers and Images)
         await ctx.react('⏳');
         try {
-            setAwait(jid, extractRawId(m.key.participant || m.key.remoteJid), 'saudio', { stickerBuffer });
-            await ctx.reply(`✅ *Sticker Saved!*\n\nNow, **reply to this message** with:\n1. An *audio file* / *voice note*\n2. Or an *audio link* (e.g., \`${prefix}saudio https://...\`)\n\n⏱️ *Note:* This sticker will expire in *5 minutes* if no audio is provided.`);
+            pendingStickers.set(jid, { userId: senderId, stickerBuffer });
+            setTimeout(() => { if (pendingStickers.has(jid)) pendingStickers.delete(jid); }, 5 * 60 * 1000);
+
+            await ctx.reply(`✅ *Sticker/Image Saved!*\n\nNow, **reply to an audio/voice note** with \`${prefix}saudio\`, or send \`${prefix}saudio <audio link>\`.\n\n⏱️ *Note:* This will expire in *5 minutes* if no audio is provided.`);
             await ctx.react('✅');
         } catch (e) {
             console.error('[saudio step 1]', e);
             await ctx.react('❌');
             await ctx.reply(`❌ Failed to save sticker: ${e.message}`);
         }
-    },
-
-    async onReply(sock, m, ctx, data) {
-        const url = ctx.text.match(/https?:\/\/[^\s]+/i)?.[0];
-        
-        // If they sent an audio file or voice note
-        if (!url && ctx.quoted && ctx.quoted.type === 'audioMessage') {
-            await ctx.react('⏳');
-            try {
-                const media = await ctx.getMedia();
-                if (!media || !media.buffer) throw new Error('Failed to download audio.');
-                await processAndSend(sock, m, ctx, data.stickerBuffer, media.buffer);
-                await ctx.react('✅');
-            } catch (e) {
-                await ctx.react('❌');
-                await ctx.reply(`❌ Failed: ${e.message}`);
-            }
-            return;
-        }
-
-        // If they sent a link
-        if (url) {
-            await ctx.react('⏳');
-            try {
-                const r = await axios.get(url, { responseType: 'arraybuffer', timeout: 25000, headers: { 'User-Agent': 'Mozilla/5.0' } });
-                await processAndSend(sock, m, ctx, data.stickerBuffer, Buffer.from(r.data));
-                await ctx.react('✅');
-            } catch (e) {
-                await ctx.react('❌');
-                await ctx.reply(`❌ Failed: ${e.message}`);
-            }
-            return;
-        }
-
-        await ctx.reply(`⏳ Please reply with an *audio file*, *voice note*, or an *audio link* to finish the sticker.`);
     }
 };
