@@ -253,10 +253,11 @@ async function handleMessage(m) {
                     if (ctx) {
                         const intentArgs = Array.isArray(intent.args) ? intent.args.join(' ') : '';
                         ctx.text = `${currentPrefix || '.'}${intent.command} ${intentArgs}`.trim();
+const [cmdRaw, ...nlpArgs] = ctx.text.slice((currentPrefix || '.').length).trim().split(/\s+/);
                         const check = await canUse(m, plugin, sock);
                         if (check.ok) {
                             ctx.pluginMap = pluginMap;
-                            await plugin.execute(sock, m, args, ctx);
+                            await plugin.execute(sock, m, nplargs, ctx);
                             // Simple confirm, DON'T call getChatbotResponse here - it pollutes memory
                             await sock.sendMessage(jid, { text: `Done, done ✅` }, { quoted: m });
                             return;
