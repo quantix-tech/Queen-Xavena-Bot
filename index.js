@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url';
 import {
     makeWASocket, useMultiFileAuthState, Browsers, 
     DisconnectReason, fetchLatestBaileysVersion, delay,
-    downloadMediaMessage
+    downloadMediaMessage, proto // <-- Added proto
 } from '@itsliaaa/baileys';
 
 import { 
@@ -24,6 +24,10 @@ import { getStickerHash, getBoundCommand } from './handlers/stickers.js';
 import { isShadowbanned } from './handlers/shadowban.js';
 import { addToCache } from './handlers/cache.js';
 import { getStored } from './lib/vvstore.js';
+import { installPatch } from './lib/audioSticker.js'; // <-- Added patch import
+
+// Apply the audio sticker patch immediately
+installPatch(proto);
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const EVENTS_DIR = path.join(__dirname, 'handlers', 'events');
@@ -282,7 +286,6 @@ async function handleMessage(m) {
                 }
                 const isNameCalled = /\bxavena\b/i.test(rawText);
 
-                // 👇 READ EVERYTHING, REPLY ONLY WHEN CALLED
                 if (!isMentioned && !isReplyToBot && !isNameCalled) {
                     saveChatMemory(jid, pushName, rawText);
                     return;
