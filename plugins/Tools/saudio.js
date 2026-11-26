@@ -232,7 +232,7 @@ export default {
                 // Auto-expire after 5 minutes
                 setTimeout(() => { if (pendingStickers.has(jid)) pendingStickers.delete(jid); }, 5 * 60 * 1000);
 
-                await ctx.reply(`✅ *Sticker Saved!*\n\nNow, **reply to this message** with:\n1. An *audio file* / *voice note*\n2. Or an *audio link* (e.g., \`${prefix}saudio https://...\`)\n\n⏱️ *Note:* This sticker will expire in *5 minutes* if no audio is provided.`);
+                await ctx.reply(`✅ *Sticker Saved!*\n\nNow, *reply to this message* with:\n1. An *audio file* / *voice note*\n2. Or an *audio link* (e.g., \`${prefix}saudio https://...\`)\n\n⏱️ *Note:* This sticker will expire in *5 minutes* if no audio is provided.`);
                 await ctx.react('✅');
             } catch (e) {
                 console.error('[saudio step 1]', e);
