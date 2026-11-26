@@ -12,9 +12,7 @@ import crypto from 'crypto';
 const MAX_SEC = 6;
 const MAX_BYTES = 900 * 1024;
 
-// Manual memory to hold the sticker waiting for its audio
 const pendingStickers = new Map();
-
 const tmp = (ext) => path.join(os.tmpdir(), `saudio_${Date.now()}_${Math.random().toString(36).slice(2)}${ext}`);
 const rm = (...f) => f.forEach(x => { try { fs.unlinkSync(x); } catch { } });
 
@@ -29,8 +27,13 @@ function ff(args) {
 }
 
 async function toWebp(buf, type) {
+    if (!buf || !Buffer.isBuffer(buf) || buf.length === 0) {
+        throw new Error('Input media buffer is empty or invalid.');
+    }
+
     const inp = tmp(type === 'image' ? '.img' : '.vid'), out = tmp('.webp');
     fs.writeFileSync(inp, buf);
+    
     try {
         for (const [size, q] of [[512, 55], [448, 40], [384, 30], [320, 22]]) {
             const vf = `scale=${size}:${size}:force_original_aspect_ratio=decrease,fps=12,pad=${size}:${size}:-1:-1:color=0x00000000,format=rgba`;
@@ -39,7 +42,7 @@ async function toWebp(buf, type) {
             const b = fs.readFileSync(out);
             if (b.length <= MAX_BYTES || type === 'image') return b;
         }
-        throw new Error('the video is too big for a sticker even after shrinking - try a shorter clip');
+        throw new Error('The video is too big for a sticker even after shrinking - try a shorter clip.');
     } finally { rm(inp, out); }
 }
 
@@ -60,12 +63,12 @@ async function addExif(webpBuf, pack, author) {
 async function processAndSend(sock, m, ctx, stickerBuffer, audioSource) {
     let voice;
     try { voice = await toOpusVoice(audioSource, MAX_SEC); }
-    catch (e) { throw new Error('Could not read the provided audio source.'); }
+    catch (e) { throw new Error('Could not convert the audio source. The media might be corrupt.'); }
 
     const { prepareWAMessageMedia, proto } = await import('@itsliaaa/baileys');
     const canAudioSticker = selfTest(proto);
 
-    let sent = false, why = canAudioSticker ? '' : 'the encoder patch could not be installed';
+    let sent = false, why = canAudioSticker ? '' : 'The encoder patch could not be installed.';
     
     if (canAudioSticker) {
         try {
@@ -74,7 +77,7 @@ async function processAndSend(sock, m, ctx, stickerBuffer, audioSource) {
                 prepareWAMessageMedia({ audio: voice, mimetype: 'audio/ogg; codecs=opus' }, { upload: sock.waUploadToServer, mediaTypeOverride: 'audio' })
             ]);
             const st = sm.stickerMessage, au = am.audioMessage;
-            if (!st?.url || !au?.url) throw new Error('upload failed');
+            if (!st?.url || !au?.url) throw new Error('Upload to WhatsApp failed.');
             
             const stickerObj = {
                 url: st.url, fileSha256: st.fileSha256, fileEncSha256: st.fileEncSha256, mediaKey: st.mediaKey,
@@ -167,17 +170,21 @@ export default {
             
             if (typeFound) {
                 const media = await ctx.getMedia();
-                if (media && media.buffer) {
-                    if (typeFound === 'video') {
-                        videoBuffer = media.buffer; // Save the raw video to extract audio later
-                        stickerBuffer = await toWebp(media.buffer, 'video');
-                    } else if (typeFound === 'sticker') {
-                        stickerBuffer = media.buffer;
-                    } else {
-                        stickerBuffer = await toWebp(media.buffer, 'image');
-                    }
-                    try { stickerBuffer = await addExif(stickerBuffer, 'Queen Xavena', 'Sound Sticker'); } catch (e) {}
+                
+                // 🛑 FIX: SAFEGUARD AGAINST EMPTY BUFFERS 🛑
+                if (!media || !media.buffer || media.buffer.length === 0) {
+                    return ctx.reply('❌ Failed to download the media. WhatsApp may have expired the file. Try sending it again and replying instantly.');
                 }
+
+                if (typeFound === 'video') {
+                    videoBuffer = media.buffer;
+                    try { stickerBuffer = await toWebp(media.buffer, 'video'); } catch(e) { return ctx.reply(`❌ Video Conversion failed: ${e.message}`); }
+                } else if (typeFound === 'sticker') {
+                    stickerBuffer = media.buffer;
+                } else {
+                    try { stickerBuffer = await toWebp(media.buffer, 'image'); } catch(e) { return ctx.reply(`❌ Image Conversion failed: ${e.message}`); }
+                }
+                try { stickerBuffer = await addExif(stickerBuffer, 'Queen Xavena', 'Sound Sticker'); } catch (e) {}
             }
         }
 
@@ -189,7 +196,6 @@ export default {
         if (typeFound === 'video') {
             await ctx.react('⏳');
             try {
-                // Since the video already has sound, we just pass the video buffer directly to the audio converter
                 await processAndSend(sock, m, ctx, stickerBuffer, videoBuffer);
                 await ctx.react('✅');
             } catch (e) {
