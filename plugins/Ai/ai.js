@@ -22,7 +22,7 @@ export default {
 
         try {
             // 1. Try Primary API
-            let apiUrl = `https://queen-xavena-api.vercel.app/api/v1/ai/ch?q=${encodeURIComponent(query)}`;
+            let apiUrl = `https://xaven-apis.vercel.app/api/v1/ai/ch?q=${encodeURIComponent(query)}`;
             
             console.log(`[AI] Sending prompt to Primary Custom API...`);
             let res = await axios.get(apiUrl, { timeout: 30000 });
