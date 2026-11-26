@@ -14,7 +14,7 @@ import {
     getPrefix, getBotName, getAiTag, getChatbotMode, getNlpMode, 
     load as loadConfig, getMode 
 } from './lib/config.js';
-import { getChatbotResponse, parseCommandIntent } from './lib/ai.js';
+import { getChatbotResponse, parseCommandIntent, saveChatMemory } from './lib/ai.js';
 import { buildContext } from './lib/message.js';
 import { canUse, getRealJid, extractRawId, isOwner, isSudo } from './lib/utils.js';
 import { loadPlugins } from './lib/loader.js';
@@ -53,7 +53,7 @@ async function start() {
   ██████   ██████  ███████ ███████ ██   ████ 
      ▀▀        X A V E N A  B O T
     `));
-    
+
     log(chalk.gray(`  ─────────────────────────────────────────────\n`));
 
     info('Checking session...');
@@ -65,7 +65,7 @@ async function start() {
     info('Loading configuration...');
     await sleep(300);
     loadConfig();
-    
+
     const restartFlag = path.join(__dirname, 'restart.txt');
     if (fs.existsSync(restartFlag)) {
         try {
@@ -98,7 +98,7 @@ async function start() {
 
     log(chalk.gray(`  ─────────────────────────────────────────────\n`));
     info('Connecting to WhatsApp...\n');
-    
+
     await connect();
 }
 
@@ -113,8 +113,6 @@ async function connect() {
         version,
         auth: state,
         logger,
-        // Web identity while pairing, Android once registered.
-        // Android is what allows view-once payloads through — Web/Desktop gets a stub.
         browser: state.creds.registered
             ? Browsers.android('13')
             : Browsers.macOS('Chrome'),
@@ -149,7 +147,7 @@ async function connect() {
     sock.ev.on('creds.update', saveCreds);
     sock.ev.on('connection.update', handleConnectionUpdate);
     sock.ev.on('messages.upsert', handleMessagesUpsert);
-    
+
     if (fs.existsSync(EVENTS_DIR)) {
         const files = fs.readdirSync(EVENTS_DIR).filter(f => f.endsWith('.js'));
         for (const file of files) {
@@ -178,7 +176,6 @@ async function handleConnectionUpdate(update) {
   └───────────────────────────────────────────┘
         `));
 
-// ─── SEND DEPLOYMENT SUCCESS MESSAGE TO OWNER ───
 try {
     const botJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
     const deployMsg = 
@@ -203,14 +200,12 @@ try {
 │
 ╰─ *Created by Lord Xaven* ─╯`;
 
-    // Wait 3 seconds to ensure connection is fully stable before sending
     setTimeout(async () => {
         await sock.sendMessage(botJid, { text: deployMsg });
     }, 3000);
 } catch (err) {
     console.error(chalk.red('[Deploy Message Error]:'), err.message);
 }
-// ─────────────────────────────────────────────────
         return;
     }
 
@@ -250,15 +245,14 @@ async function handleMessage(m) {
 
     const currentPrefix = getPrefix();
     let rawText = m.message?.conversation || m.message?.extendedTextMessage?.text || m.message?.imageMessage?.caption || m.message?.videoMessage?.caption || '';
-    
-    // ─── STICKER BINDING CHECK (Triggers before anything else) ───
+
+    // ─── STICKER BINDING CHECK ───
     if (m.message?.stickerMessage) {
         try {
             const buffer = await downloadMediaMessage(m, 'buffer', {}, { logger: console });
             if (buffer) {
                 const hash = getStickerHash(buffer);
                 const boundCmd = getBoundCommand(hash);
-                
                 if (boundCmd) {
                     rawText = `${currentPrefix}${boundCmd}`;
                     console.log(`[sticker-trigger] Activated command: ${boundCmd}`);
@@ -279,7 +273,6 @@ async function handleMessage(m) {
         }
     }
 
-    // 👇 Determine if it's a command (Handles prefix='' properly)
     const firstWord = currentPrefix 
         ? rawText.slice(currentPrefix.length).trim().split(/\s+/)[0].toLowerCase() 
         : rawText.trim().split(/\s+/)[0].toLowerCase();
@@ -310,29 +303,23 @@ async function handleMessage(m) {
 
         if (nlpMode && isNlpTrigger) {
             const cleanText = rawText.replace(/\bxavena\b/gi, '').replace(/^[,.\s]+|[,.\s]+$/g, '').trim();
-            
             if (cleanText) {
                 if (getMode() === 'private' && !isOwn && !isSud) return;
-
                 const availableCmds = Array.from(pluginMap.keys());
                 const intent = await parseCommandIntent(cleanText, availableCmds);
-                
                 if (intent && intent.command && pluginMap.has(intent.command)) {
                     const plugin = pluginMap.get(intent.command);
                     const ctx = await buildContext(sock, m);
-                    
                     if (ctx) {
                         const intentArgs = Array.isArray(intent.args) ? intent.args.join(' ') : '';
                         ctx.text = `${currentPrefix || '.'}${intent.command} ${intentArgs}`.trim();
                         const [cmdRaw, ...args] = ctx.text.slice((currentPrefix || '.').length).trim().split(/\s+/);
-                        
                         const check = await canUse(m, plugin, sock);
                         if (check.ok) {
                             ctx.pluginMap = pluginMap;
                             await plugin.execute(sock, m, args, ctx);
-                            
                             const confirmPrompt = `You are Queen Xavena. The user told you: "${rawText}". You just successfully executed the "${intent.command}" command for them. Give a very short, natural confirmation in your persona.`;
-                            const aiReply = await getChatbotResponse(confirmPrompt, pushName, role, chatType);
+                            const aiReply = await getChatbotResponse(confirmPrompt, pushName, role, chatType, jid);
                             if (aiReply) {
                                 await sock.sendMessage(jid, { text: aiReply }, { quoted: m });
                             }
@@ -346,6 +333,9 @@ async function handleMessage(m) {
         const chatbotMode = getChatbotMode();
         if (chatbotMode) {
             if (getMode() === 'private' && !isOwn && !isSud) return; 
+
+            // 👇 SHE READS EVERYTHING - save to memory even if not talking to her
+            saveChatMemory(jid, pushName, rawText);
 
             if (jid.endsWith('@g.us')) {
                 const botNumber = extractRawId(sock.user.id);
@@ -366,10 +356,11 @@ async function handleMessage(m) {
                 }
 
                 const isNameCalled = /\bxavena\b/i.test(rawText);
+                // 👇 She read it, but stays quiet unless called
                 if (!isMentioned && !isReplyToBot && !isNameCalled) return;
             }
 
-            const aiReply = await getChatbotResponse(rawText, pushName, role, chatType);
+            const aiReply = await getChatbotResponse(rawText, pushName, role, chatType, jid);
             if (aiReply) {
                 await sock.sendMessage(jid, { text: aiReply }, { quoted: m });
             }
@@ -399,13 +390,12 @@ async function handleMessage(m) {
     const ctx = await buildContext(sock, m);
     if (!ctx) return;
 
-    // Ensure text is correct if it was a sticker trigger
     if (m.message?.stickerMessage && rawText.startsWith(currentPrefix)) {
         ctx.text = rawText;
     }
 
     if (!ctx.text) return;
-    
+
     let body = ctx.text;
     if (currentPrefix && body.startsWith(currentPrefix)) {
         body = body.slice(currentPrefix.length).trim();
