@@ -115,7 +115,7 @@ export default {
                 throw new Error('Could not convert any stickers. The pack might contain unsupported Lottie formats.');
             }
 
-            const MAX_PER_PACK = 30;
+            const MAX_PER_PACK = 60;
             const packCount = Math.ceil(stickerPaths.length / MAX_PER_PACK);
 
             await ctx.reply(`📦 *Sending ${stickerPaths.length} stickers in ${packCount} pack(s)...*`);
