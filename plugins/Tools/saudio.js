@@ -11,6 +11,9 @@ import crypto from 'crypto';
 const MAX_SEC = 6;
 const MAX_BYTES = 900 * 1024;
 
+// Memory to hold the sticker waiting for its audio
+const pendingStickers = new Map();
+
 const tmp = (ext) => path.join(os.tmpdir(), `saudio_${Date.now()}_${Math.random().toString(36).slice(2)}${ext}`);
 const rm = (...f) => f.forEach(x => { try { fs.unlinkSync(x); } catch { } });
 
@@ -32,6 +35,7 @@ function findMedia(message) {
         if (m.videoMessage) return { node: m.videoMessage, type: 'video' };
         if (m.imageMessage) return { node: m.imageMessage, type: 'image' };
         if (m.stickerMessage) return { node: m.stickerMessage, type: 'sticker' };
+        if (m.audioMessage) return { node: m.audioMessage, type: 'audio' };
         return null;
     };
     const top = unwrap(message) || {};
@@ -79,98 +83,162 @@ async function addExif(webpBuf, pack, author) {
     return await img.save(null);
 }
 
+async function processAndSend(sock, m, ctx, stickerBuffer, audioSource) {
+    let voice;
+    try { voice = await toOpusVoice(audioSource, MAX_SEC); }
+    catch (e) { throw new Error('Could not read the provided audio source.'); }
+
+    const { prepareWAMessageMedia, proto } = await import('@itsliaaa/baileys');
+    const canAudioSticker = selfTest(proto);
+
+    let sent = false, why = canAudioSticker ? '' : 'the encoder patch could not be installed';
+    
+    if (canAudioSticker) {
+        try {
+            const [sm, am] = await Promise.all([
+                prepareWAMessageMedia({ sticker: stickerBuffer }, { upload: sock.waUploadToServer, mediaTypeOverride: 'sticker' }),
+                prepareWAMessageMedia({ audio: voice, mimetype: 'audio/ogg; codecs=opus' }, { upload: sock.waUploadToServer, mediaTypeOverride: 'audio' })
+            ]);
+            const st = sm.stickerMessage, au = am.audioMessage;
+            if (!st?.url || !au?.url) throw new Error('upload failed');
+            
+            const stickerObj = {
+                url: st.url, fileSha256: st.fileSha256, fileEncSha256: st.fileEncSha256, mediaKey: st.mediaKey,
+                mimetype: 'image/webp', directPath: st.directPath, mediaKeyTimestamp: st.mediaKeyTimestamp,
+                height: 512, width: 512, fileLength: st.fileLength, isAnimated: true,
+                stickerSentTs: Date.now(), isAvatar: false, isAiSticker: false, isLottie: false,
+                contextInfo: { mediaDomainInfo: { mediaKeyDomain: 1, e2EeMediaKey: st.mediaKey }, experienceIds: [13002] }
+            };
+            const audioObj = {
+                url: au.url, mimetype: 'audio/ogg; codecs=opus', fileSha256: au.fileSha256, fileLength: au.fileLength,
+                seconds: Math.max(1, Math.min(MAX_SEC, Math.round(voice.length / 4000))), mediaKey: au.mediaKey,
+                fileEncSha256: au.fileEncSha256, directPath: au.directPath, mediaKeyTimestamp: au.mediaKeyTimestamp,
+                contextInfo: { mediaDomainInfo: { mediaKeyDomain: 1, e2EeMediaKey: au.mediaKey } }
+            };
+            
+            const message = {
+                __audioSticker: buildAudioSticker(proto, stickerObj, audioObj),
+                messageContextInfo: { messageSecret: crypto.randomBytes(32) }
+            };
+            
+            await sock.relayMessage(m.key.remoteJid, message, { messageId: 'QX' + crypto.randomBytes(8).toString('hex').toUpperCase() });
+            sent = true;
+        } catch (e) { console.error('[saudio] proto failed:', e); why = e.message; }
+    }
+    
+    if (!sent) {
+        await sock.sendMessage(m.key.remoteJid, { sticker: stickerBuffer }, { quoted: m });
+        await sock.sendMessage(m.key.remoteJid, { audio: voice, mimetype: 'audio/ogg; codecs=opus', ptt: true }, { quoted: m });
+        await ctx.reply('⚠️ Sound sticker proto failed. Sent as separate sticker + audio. Reason: ' + why);
+    }
+}
+
 export default {
     command: 'saudio',
     aliases: ['soundsticker', 'stickeraudio', 'stikersuara', 'audiosticker'],
-    description: 'Turn a video/GIF into a sticker that plays its sound',
+    description: 'Turn media into a sticker that plays sound',
     category: 'Tools',
     ownerOnly: false,
-    usage: 'saudio (reply to a video) | saudio <audio link> (reply to media)',
+    usage: 'saudio (reply to media/audio)',
 
     async execute(sock, m, args, ctx) {
         const prefix = getPrefix();
-        const found = findMedia(m.message);
+        const jid = m.key.remoteJid;
         const url = args.find(a => /^https?:\/\//i.test(a));
+        
+        // ─── STEP 2: USER REPLIED WITH AUDIO OR LINK ───
+        // Check if there's a pending sticker for this user in this chat
+        const pending = pendingStickers.get(jid);
+        if (pending && pending.userId === m.key.participant) {
+            const foundAudio = findMedia(m.message);
+            
+            if (!url && (!foundAudio || foundAudio.type !== 'audio')) {
+                return ctx.reply(`⏳ Please reply with an *audio file*, *voice note*, or an *audio link* to finish the sticker.`);
+            }
+
+            await ctx.react('⏳');
+            try {
+                let audioSource;
+                if (url) {
+                    const r = await axios.get(url, { responseType: 'arraybuffer', timeout: 25000, maxContentLength: 15 * 1024 * 1024, headers: { 'User-Agent': 'Mozilla/5.0' } });
+                    audioSource = Buffer.from(r.data);
+                } else {
+                    audioSource = await download(foundAudio);
+                }
+
+                await processAndSend(sock, m, ctx, pending.stickerBuffer, audioSource);
+                pendingStickers.delete(jid);
+                await ctx.react('✅');
+            } catch (e) {
+                console.error('[saudio step 2]', e);
+                await ctx.react('❌');
+                await ctx.reply(`❌ Failed: ${e.message}`);
+            }
+            return;
+        }
+
+        // ─── STEP 1: INITIAL COMMAND ───
+        const found = findMedia(m.message);
 
         if (!found) {
-            return ctx.reply(`*SOUND STICKER*\n\n• Reply to a *video / GIF* with \`${prefix}saudio\`\n   -> a sticker that plays the video's own sound\n\n• Reply to a sticker, photo or video with \`${prefix}saudio <audio link>\`\n   -> a sticker with that sound\n\nClips are cut to ${MAX_SEC} seconds.`);
-        }
-        if (found.type !== 'video' && !url) {
-            return ctx.reply(`A ${found.type} has no sound of its own. Add an audio link:\n\`${prefix}saudio https://example.com/sound.mp3\``);
+            return ctx.reply(`*SOUND STICKER*\n\n• Reply to a *video/GIF/Sticker/Photo* with \`${prefix}saudio\`\n   -> Bot will save it, then ask for audio.\n\n• Or reply with \`${prefix}saudio <audio link>\`\n   -> Bot will merge immediately.`);
         }
 
-        await ctx.react('⏳');
+        // If they provided a link directly, do it in one step
+        if (url) {
+            await ctx.react('⏳');
+            try {
+                let stickerBuf;
+                if (found.type === 'sticker') {
+                    stickerBuf = await download(found);
+                } else {
+                    const raw = await download(found);
+                    stickerBuf = await toWebp(raw, found.type);
+                }
+                try { stickerBuf = await addExif(stickerBuf, 'Queen Xavena', 'Sound Sticker'); } catch (e) {}
 
-        try {
-            const raw = await download(found);
-            if (!raw.length) throw new Error('could not download the media (it may have expired)');
-
-            let sticker = found.type === 'sticker' ? raw : await toWebp(raw, found.type);
-            try { sticker = await addExif(sticker, 'Queen Xavena', 'Sound Sticker'); } catch (e) { }
-
-            let source;
-            if (url) {
                 const r = await axios.get(url, { responseType: 'arraybuffer', timeout: 25000, maxContentLength: 15 * 1024 * 1024, headers: { 'User-Agent': 'Mozilla/5.0' } });
-                source = Buffer.from(r.data);
-            } else source = raw;
-            
-            let voice;
-            try { voice = await toOpusVoice(source, MAX_SEC); }
-            catch (e) {
-                if (!url) return ctx.reply(`That video has no sound to use. Reply to it with an audio link instead:\n\`${prefix}saudio https://example.com/sound.mp3\``);
-                throw new Error('could not read that audio link');
+                await processAndSend(sock, m, ctx, stickerBuf, Buffer.from(r.data));
+                await ctx.react('✅');
+            } catch (e) {
+                console.error('[saudio single step]', e);
+                await ctx.react('❌');
+                await ctx.reply(`❌ Failed: ${e.message}`);
             }
+            return;
+        }
 
-            const { prepareWAMessageMedia, proto } = await import('@itsliaaa/baileys');
-            const canAudioSticker = selfTest(proto);
-            console.log('[saudio] sound-sticker encoding ready:', canAudioSticker);
+        // If it's a sticker (and no URL provided), start the two-step process
+        if (found.type === 'sticker' || found.type === 'image' || found.type === 'video') {
+            await ctx.react('⏳');
+            try {
+                let stickerBuf;
+                if (found.type === 'sticker') {
+                    stickerBuf = await download(found);
+                } else {
+                    const raw = await download(found);
+                    stickerBuf = await toWebp(raw, found.type);
+                }
+                try { stickerBuf = await addExif(stickerBuf, 'Queen Xavena', 'Sound Sticker'); } catch (e) {}
 
-            let sent = false, why = canAudioSticker ? '' : 'the encoder patch could not be installed on this library';
-            
-            if (canAudioSticker) {
-                try {
-                    const [sm, am] = await Promise.all([
-                        prepareWAMessageMedia({ sticker }, { upload: sock.waUploadToServer, mediaTypeOverride: 'sticker' }),
-                        prepareWAMessageMedia({ audio: voice, mimetype: 'audio/ogg; codecs=opus' }, { upload: sock.waUploadToServer, mediaTypeOverride: 'audio' })
-                    ]);
-                    const st = sm.stickerMessage, au = am.audioMessage;
-                    if (!st?.url || !au?.url) throw new Error('upload failed');
-                    
-                    const stickerObj = {
-                        url: st.url, fileSha256: st.fileSha256, fileEncSha256: st.fileEncSha256, mediaKey: st.mediaKey,
-                        mimetype: 'image/webp', directPath: st.directPath, mediaKeyTimestamp: st.mediaKeyTimestamp,
-                        height: 512, width: 512, fileLength: st.fileLength,
-                        isAnimated: found.type === 'video' || !!found.node.isAnimated,
-                        stickerSentTs: Date.now(), isAvatar: false, isAiSticker: false, isLottie: false,
-                        contextInfo: { mediaDomainInfo: { mediaKeyDomain: 1, e2EeMediaKey: st.mediaKey }, experienceIds: [13002] }
-                    };
-                    const audioObj = {
-                        url: au.url, mimetype: 'audio/ogg; codecs=opus', fileSha256: au.fileSha256, fileLength: au.fileLength,
-                        seconds: Math.max(1, Math.min(MAX_SEC, Math.round(voice.length / 4000))), mediaKey: au.mediaKey,
-                        fileEncSha256: au.fileEncSha256, directPath: au.directPath, mediaKeyTimestamp: au.mediaKeyTimestamp,
-                        contextInfo: { mediaDomainInfo: { mediaKeyDomain: 1, e2EeMediaKey: au.mediaKey } }
-                    };
-                    
-                    const message = {
-                        __audioSticker: buildAudioSticker(proto, stickerObj, audioObj),
-                        messageContextInfo: { messageSecret: crypto.randomBytes(32) }
-                    };
-                    
-                    await sock.relayMessage(m.key.remoteJid, message, { messageId: 'QX' + crypto.randomBytes(8).toString('hex').toUpperCase() });
-                    sent = true;
-                } catch (e) { console.error('[saudio] sound sticker failed, using fallback:', e); why = e.message || String(e); }
+                // Save to memory
+                pendingStickers.set(jid, {
+                    userId: m.key.participant || m.key.remoteJid,
+                    stickerBuffer: stickerBuf
+                });
+
+                // Auto-expire after 5 minutes
+                setTimeout(() => { if (pendingStickers.has(jid)) pendingStickers.delete(jid); }, 5 * 60 * 1000);
+
+                await ctx.reply(`✅ *Sticker Saved!*\n\nNow, **reply to this message** with:\n1. An *audio file* / *voice note*\n2. Or an *audio link* (e.g., \`${prefix}saudio https://...\`)\n\n_I will merge them and send the sound sticker._`);
+                await ctx.react('✅');
+            } catch (e) {
+                console.error('[saudio step 1]', e);
+                await ctx.react('❌');
+                await ctx.reply(`❌ Failed to save sticker: ${e.message}`);
             }
-            
-            if (!sent) {
-                await sock.sendMessage(m.key.remoteJid, { sticker }, { quoted: m });
-                await sock.sendMessage(m.key.remoteJid, { audio: voice, mimetype: 'audio/ogg; codecs=opus', ptt: true }, { quoted: m });
-                await ctx.reply('Sent as sticker + voice note. Reason: ' + why);
-            }
-            await ctx.react('✅');
-        } catch (e) {
-            console.error('[saudio]', e);
-            await ctx.react('❌');
-            await ctx.reply(`Could not make the sound sticker: ${e.message}`);
+        } else {
+            return ctx.reply(`❌ A ${found.type} has no sound of its own. Please reply to a sticker/image/video and provide an audio link.`);
         }
     }
 };
