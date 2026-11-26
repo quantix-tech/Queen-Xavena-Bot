@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url';
 import {
     makeWASocket, useMultiFileAuthState, Browsers, 
     DisconnectReason, fetchLatestBaileysVersion, delay,
-    downloadMediaMessage, proto // <-- Added proto
+    downloadMediaMessage, proto 
 } from '@itsliaaa/baileys';
 
 import { 
@@ -24,7 +24,8 @@ import { getStickerHash, getBoundCommand } from './handlers/stickers.js';
 import { isShadowbanned } from './handlers/shadowban.js';
 import { addToCache } from './handlers/cache.js';
 import { getStored } from './lib/vvstore.js';
-import { installPatch } from './lib/audioSticker.js'; // <-- Added patch import
+import { installPatch } from './lib/audioSticker.js';
+import { getAwait, clearAwait } from './lib/awaits.js'; // <-- Added global awaits
 
 // Apply the audio sticker patch immediately
 installPatch(proto);
@@ -127,6 +128,7 @@ async function connect() {
     sock.ev.on('creds.update', saveCreds);
     sock.ev.on('connection.update', handleConnectionUpdate);
     sock.ev.on('messages.upsert', handleMessagesUpsert);
+    
     if (fs.existsSync(EVENTS_DIR)) {
         const files = fs.readdirSync(EVENTS_DIR).filter(f => f.endsWith('.js'));
         for (const file of files) {
@@ -152,9 +154,9 @@ async function handleConnectionUpdate(update) {
   │   Mode    : ${getMode()}                            
   └───────────────────────────────────────────┘
         `));
-try {
-    const botJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
-    const deployMsg = 
+        try {
+            const botJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
+            const deployMsg = 
 `╭─「 *QUEEN XAVENA* 」─
 │
 │  🚀 *Deployment Successful!*
@@ -175,8 +177,8 @@ try {
 │  the update is complete.
 │
 ╰─ *Created by Lord Xaven* ─╯`;
-    setTimeout(async () => { await sock.sendMessage(botJid, { text: deployMsg }); }, 3000);
-} catch (err) { console.error(chalk.red('[Deploy Message Error]:'), err.message); }
+            setTimeout(async () => { await sock.sendMessage(botJid, { text: deployMsg }); }, 3000);
+        } catch (err) { console.error(chalk.red('[Deploy Message Error]:'), err.message); }
         return;
     }
     if (connection === 'close') {
@@ -204,6 +206,32 @@ async function handleMessage(m) {
     if (jid === 'status@broadcast' || jid.endsWith('@broadcast')) return;
     if (m.message?.reactionMessage) return;
     if (m.key.id) addToCache(m.key.id, m);
+
+    // ─── GLOBAL AWAIT INTERCEPTOR ───
+    const senderJid = m.key.participant || (m.key.fromMe ? sock.user.id : m.key.remoteJid);
+    const rawSender = extractRawId(senderJid);
+    
+    const awaitState = getAwait(jid, rawSender);
+    if (awaitState) {
+        const plugin = pluginMap.get(awaitState.command);
+        if (plugin && typeof plugin.onReply === 'function') {
+            try {
+                // Clear it immediately so they don't get double-triggered
+                clearAwait(jid, rawSender);
+                
+                // Build context and pass to the plugin
+                const ctx = await buildContext(sock, m);
+                await plugin.onReply(sock, m, ctx, awaitState.data);
+                return; // Stop processing this message as a normal command
+            } catch (err) {
+                error(`Await Reply Error (${awaitState.command}): ${err.message}`);
+                try { await sock.sendMessage(jid, { text: `❌ Error: ${err.message}` }, { quoted: m }); } catch {}
+                return;
+            }
+        }
+    }
+    // ────────────────────────────────
+
     const currentPrefix = getPrefix();
     let rawText = m.message?.conversation || m.message?.extendedTextMessage?.text || m.message?.imageMessage?.caption || m.message?.videoMessage?.caption || '';
     if (m.message?.stickerMessage) {
@@ -300,9 +328,8 @@ async function handleMessage(m) {
     }
 
     if (currentPrefix && !rawText.startsWith(currentPrefix)) return;
-    const rawSender = m.key.participant || m.key.remoteJid;
-    const resolvedSender = await getRealJid(rawSender, sock);
-    const rawId = extractRawId(rawSender);
+    const resolvedSender = await getRealJid(senderJid, sock);
+    const rawId = extractRawId(senderJid);
     if (isBanned([resolvedSender, rawId])) { await sock.sendMessage(jid, { text: `⛔ *Access Denied*` }, { quoted: m }); return; }
     if (m.key.fromMe && sentMessageIds.has(m.key.id)) { sentMessageIds.delete(m.key.id); return; }
     const ctx = await buildContext(sock, m);
