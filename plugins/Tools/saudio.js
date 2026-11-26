@@ -35,15 +35,21 @@ function findMedia(message) {
         if (m.videoMessage) return { node: m.videoMessage, type: 'video' };
         if (m.imageMessage) return { node: m.imageMessage, type: 'image' };
         if (m.stickerMessage) return { node: m.stickerMessage, type: 'sticker' };
-        if (m.audioMessage) return { node: m.audioMessage, type: 'audio' };
+        if (m.audioMessage) return { node: m.audioMessage, type: 'audio' }; // <-- Added this
         return null;
     };
+    
+    // 1. Check the message itself
     const top = unwrap(message) || {};
+    const direct = pick(top);
+    if (direct) return direct;
+
+    // 2. Check quoted messages
     for (const k of Object.keys(top)) {
         const q = top[k]?.contextInfo?.quotedMessage;
         if (q) { const r = pick(q); if (r) return r; }
     }
-    return pick(top);
+    return null;
 }
 
 async function download(found) {
@@ -147,9 +153,8 @@ export default {
         const url = args.find(a => /^https?:\/\//i.test(a));
         
         // ─── STEP 2: USER REPLIED WITH AUDIO OR LINK ───
-        // Check if there's a pending sticker for this user in this chat
         const pending = pendingStickers.get(jid);
-        if (pending && pending.userId === m.key.participant) {
+        if (pending) {
             const foundAudio = findMedia(m.message);
             
             if (!url && (!foundAudio || foundAudio.type !== 'audio')) {
@@ -184,7 +189,6 @@ export default {
             return ctx.reply(`*SOUND STICKER*\n\n• Reply to a *video/GIF/Sticker/Photo* with \`${prefix}saudio\`\n   -> Bot will save it, then ask for audio.\n\n• Or reply with \`${prefix}saudio <audio link>\`\n   -> Bot will merge immediately.`);
         }
 
-        // If they provided a link directly, do it in one step
         if (url) {
             await ctx.react('⏳');
             try {
@@ -208,7 +212,6 @@ export default {
             return;
         }
 
-        // If it's a sticker (and no URL provided), start the two-step process
         if (found.type === 'sticker' || found.type === 'image' || found.type === 'video') {
             await ctx.react('⏳');
             try {
@@ -221,7 +224,6 @@ export default {
                 }
                 try { stickerBuf = await addExif(stickerBuf, 'Queen Xavena', 'Sound Sticker'); } catch (e) {}
 
-                // Save to memory
                 pendingStickers.set(jid, {
                     userId: m.key.participant || m.key.remoteJid,
                     stickerBuffer: stickerBuf
@@ -230,7 +232,7 @@ export default {
                 // Auto-expire after 5 minutes
                 setTimeout(() => { if (pendingStickers.has(jid)) pendingStickers.delete(jid); }, 5 * 60 * 1000);
 
-                await ctx.reply(`✅ *Sticker Saved!*\n\nNow, **reply to this message** with:\n1. An *audio file* / *voice note*\n2. Or an *audio link* (e.g., \`${prefix}saudio https://...\`)\n\n_I will merge them and send the sound sticker._`);
+                await ctx.reply(`✅ *Sticker Saved!*\n\nNow, **reply to this message** with:\n1. An *audio file* / *voice note*\n2. Or an *audio link* (e.g., \`${prefix}saudio https://...\`)\n\n⏱️ *Note:* This sticker will expire in *5 minutes* if no audio is provided.`);
                 await ctx.react('✅');
             } catch (e) {
                 console.error('[saudio step 1]', e);
