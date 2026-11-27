@@ -11,9 +11,8 @@ export default {
     usage: 'theme <color> | theme off',
 
     async execute(sock, m, args, ctx) {
-        // 1. Initialize all patches on every command run
         const patchState = initThemePatches();
-        
+
         const prefix = getPrefix();
         const jid = m.key.remoteJid;
         const isGroup = jid.endsWith('@g.us');
@@ -42,7 +41,6 @@ export default {
             return ctx.reply(`❌ Unknown color "${action}". Try red, blue, green, or a hex code.`);
         }
 
-        // 2. Check admin rule if it's a group
         if (isGroup) {
             try {
                 const admin = await isBotAdmin(sock, jid);
@@ -55,24 +53,26 @@ export default {
         }
 
         try {
-            // 3. Send the theme payload
+            // Injected exactly like 3rd file: preset scheme + preset bg/doodle, else no scheme + doodle = light/dark
+            const setting = {
+                settingTimestampMs: Date.now(),
+                solidColor: {
+                    backgroundLightArgb: pair.light,
+                    backgroundDarkArgb: pair.dark,
+                    isDoodleEnabled: true,
+                    doodleLightArgb: pair.doodleLight,
+                    doodleDarkArgb: pair.doodleDark
+                }
+            };
+            if (pair.scheme) setting.colorSchemeId = pair.scheme;
+
             await sock.relayMessage(jid, {
                 protocolMessage: {
                     type: 34,
-                    chatThemeSetting: {
-                        settingTimestampMs: Date.now(),
-                        colorSchemeId: 'Default-Blue@Minimal',
-                        solidColor: {
-                            backgroundLightArgb: pair.light,
-                            backgroundDarkArgb: pair.dark,
-                            isDoodleEnabled: true,
-                            doodleLightArgb: (pair.light & 0x00FFFFFF) | 0x33000000, // Semi-transparent tint
-                            doodleDarkArgb: (pair.dark & 0x00FFFFFF) | 0x55000000
-                        }
-                    }
+                    chatThemeSetting: setting
                 }
             }, { additionalAttributes: { type: 'media' } });
-            
+
             return ctx.reply(`🎨 Theme set to *${action}*!`);
         } catch (e) {
             console.error('[theme]', e);
