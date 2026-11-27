@@ -12,7 +12,7 @@ import {
 
 import { 
     getPrefix, getBotName, getAiTag, getChatbotMode, getNlpMode, 
-    load as loadConfig, getMode, getStealthMode // <-- Added Stealth Mode
+    load as loadConfig, getMode, getStealthMode 
 } from './lib/config.js';
 import { getChatbotResponse, parseCommandIntent, saveChatMemory } from './lib/ai.js';
 import { buildContext } from './lib/message.js';
