@@ -55,45 +55,23 @@ export default {
 
                 const add = await tryAddMetaAi(sock, m.key.remoteJid);
                 if (!add.ok) {
-                    const detail = add.status
-                        ? `status ${add.status}`
-                        : (add.error && add.error.message) || 'unknown error';
-                    return ctx.reply(`❌ Meta AI could not be added (${detail}).\n\nTip: Meta AI must be available on this account/region.`);
+                    console.error('MetaAI add failed:', add.status, add.error);
+                    return ctx.reply('❌ Failed to add Meta AI.');
                 }
 
                 await new Promise((r) => setTimeout(r, 1200));
-                let verified = false;
-                try {
-                    const again = await findMetaAiInGroup(sock, m.key.remoteJid);
-                    verified = again.present;
-                } catch (_) {}
-
-                return ctx.reply(verified
-                    ? '✅ Meta AI has been added to this group.'
-                    : '✅ Meta AI was invited. It may already be active even if group info has not refreshed yet.');
+                return ctx.reply('✅ Meta AI has been added to this group.');
             }
 
             // kick
             const remove = await tryRemoveMetaAi(sock, m.key.remoteJid, presentInfo);
             if (!remove.ok) {
-                const detail = remove.status
-                    ? `status ${remove.status}`
-                    : (remove.error && remove.error.message) || 'unknown error';
-                return ctx.reply(`❌ Meta AI could not be removed (${detail}).\n\n${presentInfo.present
-                    ? 'Detected in group metadata, but WhatsApp rejected the remove.'
-                    : 'Not clearly listed in group metadata; tried known Meta AI IDs anyway.'}`);
+                console.error('MetaAI remove failed:', remove.status, remove.error, remove.attempts);
+                return ctx.reply('❌ Failed to remove Meta AI.');
             }
 
             await new Promise((r) => setTimeout(r, 800));
-            let stillThere = false;
-            try {
-                const again = await findMetaAiInGroup(sock, m.key.remoteJid);
-                stillThere = again.present;
-            } catch (_) {}
-
-            return ctx.reply(stillThere
-                ? '✅ Remove request sent. Meta AI may still appear until group info refreshes.'
-                : '✅ Meta AI has been removed from this group.');
+            return ctx.reply('✅ Meta AI has been removed from this group.');
 
         } catch (err) {
             console.error('MetaAI error:', err);
