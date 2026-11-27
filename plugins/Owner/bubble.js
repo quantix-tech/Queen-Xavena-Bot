@@ -18,19 +18,29 @@ export default {
         const name = args[0]?.toLowerCase();
 
         if (!name) {
-            return ctx.reply(`🫧 *Bubble*\n\nUsage:\n\`${prefix}bubble <name>\` — bubble only\n\`${prefix}bubble list\` — show all\n\`${prefix}bubble off\` — clear bubble\n\nTheme is separate: \`${prefix}theme red\``);
+            return ctx.reply(`🫧 *Bubble*\n\nUsage:\n\`${prefix}bubble <name>\` — bubble only\n\`${prefix}bubble list\` — show all\n\`${prefix}bubble off\` — reset bubble to default\n\nTheme is separate: \`${prefix}theme red\``);
         }
 
         if (name === 'list') {
             return ctx.reply(`🫧 *Bubble Schemes*\n\n${Object.entries(BUBBLE_SCHEMES).map(([k, v]) => `• \`${k}\` → ${v}`).join('\n')}`);
         }
 
+        // ─── BUBBLE OFF — FIXED ───
+        // DO NOT use clearTheme: true here — that clears theme + doodle + bubble
+        // Instead reset bubble only to WhatsApp default
         if (name === 'off' || name === 'clear') {
             try {
                 await sock.relayMessage(jid, {
-                    protocolMessage: { type: 34, chatThemeSetting: { clearTheme: true, settingTimestampMs: Date.now() } }
+                    protocolMessage: {
+                        type: 34,
+                        chatThemeSetting: {
+                            settingTimestampMs: Date.now(),
+                            colorSchemeId: 'Default-Blue@Minimal'
+                            // NO solidColor, NO clearTheme — so theme is untouched
+                        }
+                    }
                 }, { additionalAttributes: { type: 'media' } });
-                return ctx.reply('🧹 Bubble cleared!');
+                return ctx.reply('🫧 Bubble reset to default — theme untouched');
             } catch (e) {
                 return ctx.reply(`❌ Failed: ${e.message}`);
             }
