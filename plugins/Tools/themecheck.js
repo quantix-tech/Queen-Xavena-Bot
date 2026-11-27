@@ -4,11 +4,11 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 import { getPrefix } from '../../lib/config.js';
 import { getGroupMetadata, isBotAdmin } from '../../lib/utils.js';
-import { __stThemePatchServerFile } from '../../lib/theme.js';
+import { __stThemePatchServerFile, __stThemePatchProto, __stThemePatchWallpaper } from '../../lib/theme.js';
 
 export default {
     command: 'themecheck',
-    description: 'Diagnostic: full theme support check',
+    description: 'Diagnostic: full theme support check like Kaizen',
     category: 'Themes',
     ownerOnly: true,
     usage: 'themecheck',
@@ -23,9 +23,11 @@ export default {
         try {
             const metadata = await getGroupMetadata(sock, m.key.remoteJid);
             const botIsAdmin = await isBotAdmin(sock, m.key.remoteJid, metadata);
-            const isGroup = 'group';
 
             globalThis.__stThemeServerPatch = __stThemePatchServerFile();
+            const _protoPatch = __stThemePatchProto();
+            const _wallPatch = __stThemePatchWallpaper();
+
             const _main = require.resolve('@itsliaaa/baileys');
             const _baileysRoot = path.join(path.dirname(_main), '..');
             const _lib = path.join(_baileysRoot, 'lib');
@@ -64,11 +66,11 @@ export default {
             _msg += `• Proto encode patch (fixed32 ARGB): *${_yes(_hasProtoPatch)}*\n`;
             _msg += `• getMediaType chat_theme: *${_yes(_hasGetMediaType)}*\n`;
             _msg += `• Wallpaper HKDF / path: *${_yes(_hasWallpaper)}*\n`;
-            _msg += `• Chat: *${isGroup}*\n`;
+            _msg += `• Chat: *group*\n`;
             _msg += `• Bot is group admin: *${botIsAdmin ? 'yes' : 'no'}*\n`;
             _msg += `• Patch state: *${String(globalThis.__stThemeServerPatch)}*`;
 
-            if (globalThis.__stThemeServerPatch === 'patched') _msg += `\n\nPatch was just applied — run ${prefix}theme red now, the bot restarts once, then run it again.`;
+            if (globalThis.__stThemeServerPatch === 'patched' || _protoPatch === 'patched') _msg += `\n\nPatch was just applied — run ${prefix}theme red now, the bot restarts once, then run it again.`;
             return ctx.reply(_msg);
         } catch (e) {
             return ctx.reply('Theme check failed: ' + (e && e.message ? e.message : String(e)));
