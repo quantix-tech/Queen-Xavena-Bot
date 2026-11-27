@@ -50,20 +50,23 @@ function resolveMedia(m) {
 }
 
 function resolveText(m, args) {
+    // 1. Direct text: .tovv hello secret
     if (args.join(' ').trim()) return args.join(' ').trim();
 
+    // 2. Quoted text ONLY — NEVER read m.message here,
+    // otherwise ".tovv" alone reads itself as ".tovv" and resends it
     const ctx = m.message?.extendedTextMessage?.contextInfo
              || m.message?.imageMessage?.contextInfo
              || m.message?.videoMessage?.contextInfo
              || null;
     const quoted = ctx?.quotedMessage || null;
+    if (!quoted) return null;
 
     const sources = [
         quoted,
         quoted?.viewOnceMessage?.message,
         quoted?.viewOnceMessageV2?.message,
         quoted?.ephemeralMessage?.message,
-        m.message,
     ].filter(Boolean);
 
     for (const src of sources) {
@@ -99,7 +102,14 @@ export default {
 
             try {
                 await sock.sendMessage(jid, { react: { text: '⏳', key: m.key } }).catch(() => {});
-                await sock.sendMessage(jid, { text, viewOnce: true }, { quoted: m });
+                // Text needs viewOnceMessage wrapper — { text, viewOnce: true } sends normal text
+                await sock.sendMessage(jid, {
+                    viewOnceMessage: {
+                        message: {
+                            extendedTextMessage: { text }
+                        }
+                    }
+                }, { quoted: m });
                 await sock.sendMessage(jid, { react: { text: '✅', key: m.key } }).catch(() => {});
             } catch (e) {
                 console.error('[tovv:send-text]', e.message);
