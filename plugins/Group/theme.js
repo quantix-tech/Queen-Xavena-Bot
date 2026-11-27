@@ -1,37 +1,34 @@
 import { getPrefix } from '../../lib/config.js';
 import { getGroupMetadata, isSenderAdmin, isBotAdmin } from '../../lib/utils.js';
+import { relayChatTheme } from '../../lib/theme.js';
 
 function darken(hex, amount = 0.85) {
-    const r = Math.floor(parseInt(hex.slice(0, 2), 16) * (1 - amount));
-    const g = Math.floor(parseInt(hex.slice(2, 4), 16) * (1 - amount));
-    const b = Math.floor(parseInt(hex.slice(4, 6), 16) * (1 - amount));
+    const n = parseInt(hex.replace('#', ''), 16);
+    const r = Math.floor(((n >> 16) & 255) * (1 - amount));
+    const g = Math.floor(((n >> 8) & 255) * (1 - amount));
+    const b = Math.floor((n & 255) * (1 - amount));
+    return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`.toUpperCase();
+}
+
+function lighten(hex, amount = 0.85) {
+    const n = parseInt(hex.replace('#', ''), 16);
+    const r = Math.floor(((n >> 16) & 255) + (255 - ((n >> 16) & 255)) * amount);
+    const g = Math.floor(((n >> 8) & 255) + (255 - ((n >> 8) & 255)) * amount);
+    const b = Math.floor((n & 255) + (255 - (n & 255)) * amount);
     return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`.toUpperCase();
 }
 
 function hexToArgb(hex) {
-    return parseInt('FF' + hex.replace('#', ''), 16);
+    return (parseInt('FF' + hex.replace('#', ''), 16) >>> 0);
 }
 
-function makeTheme(name, mainHex, doodleHex = mainHex) {
-    const bgHex = darken(mainHex.replace('#', ''), 0.88);
-    return {
-        colorSchemeId: `Default-${name}@Minimal`,
-        solidColor: {
-            background: hexToArgb(bgHex),
-            isDoodleEnabled: true,
-            doodleLightArgb: hexToArgb(doodleHex),
-            doodleDarkArgb: hexToArgb(darken(doodleHex.replace('#', ''), 0.4)),
-        }
-    };
+function cap(s) {
+    return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 function parseHex(input) {
     const m = input?.match(/^#?([0-9a-f]{6})$/i);
     return m ? '#' + m[1].toUpperCase() : null;
-}
-
-function cap(s) {
-    return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 const COLORS = {
@@ -47,6 +44,20 @@ const COLORS = {
     cyan: '#06B6D4', brown: '#92400E', grey: '#64748B', gray: '#64748B',
     black: '#1E293B', white: '#E2E8F0',
 };
+
+async function applyTheme(sock, jid, mainHex, name, doodleHex) {
+    const doodle = doodleHex || mainHex;
+    return relayChatTheme(sock, jid, {
+        colorSchemeId: `Default-${name}@Minimal`,
+        solidColor: {
+            backgroundLightArgb: hexToArgb(lighten(mainHex, 0.85)),
+            backgroundDarkArgb: hexToArgb(darken(mainHex, 0.88)),
+            isDoodleEnabled: true,
+            doodleLightArgb: hexToArgb(doodle),
+            doodleDarkArgb: hexToArgb(darken(doodle, 0.4)),
+        }
+    });
+}
 
 export default {
     command: 'theme',
@@ -81,7 +92,6 @@ export default {
         }
 
         try {
-            // Admin checks — same as kick
             const metadata = await getGroupMetadata(sock, m.key.remoteJid);
             const senderIsAdmin = await isSenderAdmin(sock, m.key.remoteJid, m.key.participant, metadata);
             const botIsAdmin = await isBotAdmin(sock, m.key.remoteJid, metadata);
@@ -94,7 +104,16 @@ export default {
             }
 
             if (raw[0] === 'off' || raw[0] === 'none' || raw[0] === 'default') {
-                await sock.chatModify({ theme: null }, m.key.remoteJid);
+                await relayChatTheme(sock, m.key.remoteJid, {
+                    colorSchemeId: 'Default-Default@Minimal',
+                    solidColor: {
+                        backgroundLightArgb: hexToArgb('#FFFFFF'),
+                        backgroundDarkArgb: hexToArgb('#0B141A'),
+                        isDoodleEnabled: false,
+                        doodleLightArgb: hexToArgb('#FFFFFF'),
+                        doodleDarkArgb: hexToArgb('#000000'),
+                    }
+                });
                 return ctx.reply('✅ Theme removed. Back to default.');
             }
 
@@ -121,15 +140,11 @@ export default {
                 }
             }
 
-            const theme = makeTheme(mainName, mainHex, doodleHex || mainHex);
-            await sock.chatModify({ theme }, m.key.remoteJid);
+            await applyTheme(sock, m.key.remoteJid, mainHex, mainName, doodleHex);
 
-            return ctx.reply(`✅ *Theme Applied*\n\n🎨 Theme: \`${mainHex}\`\n✨ Doodle: \`${doodleHex || mainHex}\`\n📦 Scheme: \`${theme.colorSchemeId}\``);
+            return ctx.reply(`✅ *Theme Applied*\n\n🎨 Theme: \`${mainHex}\`\n✨ Doodle: \`${doodleHex || mainHex}\``);
         } catch (err) {
             console.error('Theme error:', err);
-            if (err.message?.includes('theme') || err.message?.includes('not a function')) {
-                return ctx.reply(`❌ Your Baileys version doesn't support \`chatModify.theme\` yet.\n\nUpdate it:\n\`npm i @itsliaaa/baileys@latest\``);
-            }
             return ctx.reply(`❌ Failed to set theme.\n_Error: ${err.message}_`);
         }
     }
