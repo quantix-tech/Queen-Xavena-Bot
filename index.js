@@ -25,12 +25,9 @@ import { isShadowbanned } from './handlers/shadowban.js';
 import { addToCache } from './handlers/cache.js';
 import { getStored } from './lib/vvstore.js';
 import { installPatch } from './lib/audioSticker.js';
-import { installThemePatch } from './lib/themeHelper.js';
 
 // Apply the audio sticker patch immediately
 installPatch(proto);
-// Apply the chat theme patch immediately
-installThemePatch();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const EVENTS_DIR = path.join(__dirname, 'handlers', 'events');
