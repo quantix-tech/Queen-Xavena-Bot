@@ -25,7 +25,6 @@ import { isShadowbanned } from './handlers/shadowban.js';
 import { addToCache } from './handlers/cache.js';
 import { getStored } from './lib/vvstore.js';
 import { installPatch } from './lib/audioSticker.js';
-import { getAwait, clearAwait } from './lib/awaits.js';
 import { installThemePatch } from './lib/themeHelper.js'; // <-- Added theme patch
 
 // Apply the audio sticker patch immediately
