@@ -8,7 +8,7 @@ import { __stThemePatchServerFile } from '../../lib/theme.js';
 
 export default {
     command: 'themecheck',
-    description: 'Diagnostic: full theme support check like Kaizen',
+    description: 'Diagnostic: full theme support check',
     category: 'Themes',
     ownerOnly: true,
     usage: 'themecheck',
