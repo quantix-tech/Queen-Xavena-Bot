@@ -73,7 +73,7 @@ export default {
                 }
             }, { additionalAttributes: { type: 'media' } });
             
-            return ctx.reply(`🎨 Theme set to *${action}*!\n\n_Note: If you don't see it, your WhatsApp version might not support shared themes yet._`);
+            return ctx.reply(`🎨 Theme set to *${action}*!`);
         } catch (e) {
             console.error('[theme]', e);
             return ctx.reply(`❌ Failed to send theme: ${e.message}`);
