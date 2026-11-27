@@ -12,7 +12,7 @@ import {
 
 import { 
     getPrefix, getBotName, getAiTag, getChatbotMode, getNlpMode, 
-    load as loadConfig, getMode 
+    load as loadConfig, getMode, getStealthMode // <-- Added Stealth Mode
 } from './lib/config.js';
 import { getChatbotResponse, parseCommandIntent, saveChatMemory } from './lib/ai.js';
 import { buildContext } from './lib/message.js';
@@ -325,7 +325,29 @@ async function handleMessage(m) {
     const userIsSudo = await isSudo(m, sock);
     if (currentMode === 'private' && !userIsOwner && !userIsSudo) return;
     if (plugin.ownerOnly && !userIsOwner) { await ctx.reply('🔒 Owner only.'); return; }
+    
     ctx.pluginMap = pluginMap;
+
+    // ─── STEALTH MODE INTERCEPTOR ───
+    if (getStealthMode()) {
+        // 1. Delete the user's command immediately
+        try { await sock.sendMessage(jid, { delete: m.key }); } catch (e) {}
+
+        // 2. Intercept ctx.reply to capture the bot's outgoing message ID
+        const originalReply = ctx.reply;
+        ctx.reply = async (text) => {
+            const res = await originalReply(text);
+            if (res?.key?.id) {
+                // Schedule deletion of the bot's reply after 5 seconds
+                setTimeout(async () => {
+                    try { await sock.sendMessage(jid, { delete: { remoteJid: jid, fromMe: true, id: res.key.id } }); } catch (e) {}
+                }, 5000);
+            }
+            return res;
+        };
+    }
+    // ────────────────────────────────
+
     try { await plugin.execute(sock, m, args, ctx); }
     catch (err) { console.error(chalk.red(`[Plugin Error] ${cmd}:`), err); try { await ctx.reply(`❌ *Command Error*`); } catch (e) {} }
 }
