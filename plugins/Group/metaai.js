@@ -1,70 +1,196 @@
+import { getGroupMetadata, isSenderAdmin, isBotAdmin } from '../../lib/utils.js';
 import { getPrefix } from '../../lib/config.js';
-import { isBotAdmin, isSenderAdmin } from '../../lib/utils.js';
 
-// Meta AI's known internal JID
-const META_AI_JID = '13135550002@c.us';
+const META_AI_JIDS = [
+    '867051314767696@bot',
+    '11111111111@bot',
+    '13135550002@c.us',
+    '13135550002@s.whatsapp.net'
+];
+const META_AI_USER_IDS = new Set([
+    '867051314767696',
+    '11111111111',
+    '13135550002'
+]);
 
 export default {
     command: 'metaai',
-    aliases: ['meta'],
-    description: 'Add (mention) or kick Meta AI in the group',
+    description: 'Adds or removes Meta AI from the group',
     category: 'Group',
     ownerOnly: false,
-    usage: 'metaai <add|kick>',
+    usage: 'metaai add / kick',
 
     async execute(sock, m, args, ctx) {
-        const jid = m.key.remoteJid;
-        const prefix = getPrefix();
-
-        if (!jid.endsWith('@g.us')) {
+        if (!m.key.remoteJid.endsWith('@g.us')) {
             return ctx.reply('❌ This command only works in groups.');
         }
 
-        const action = args[0]?.toLowerCase();
+        const prefix = getPrefix();
+        const sub = (args[0] || '').toLowerCase();
 
-        if (!action) {
-            return ctx.reply(`🤖 *Meta AI Control*\n\n*Usage:*\n\`${prefix}metaai add\` — Mention Meta AI in the chat\n\`${prefix}metaai kick\` — Remove Meta AI from the group`);
+        if (sub !== 'add' && sub !== 'kick') {
+            return ctx.reply(`❌ *Meta AI*\n\nUsage:\n${prefix}metaai add\n${prefix}metaai kick`);
         }
 
-        // Check if sender is admin (only admins should manage this)
-        const isAdmin = await isSenderAdmin(sock, jid, m.key.participant);
-        if (!isAdmin) {
-            return ctx.reply('❌ Admin only.');
-        }
+        try {
+            const metadata = await getGroupMetadata(sock, m.key.remoteJid);
+            const participants = metadata.participants;
 
-        if (action === 'add') {
-            try {
-                // We can't force-add via API, but we can mention it.
-                // This is how you "summon" Meta AI in a group.
-                await sock.sendMessage(jid, {
-                    text: '@Meta AI',
-                    mentions: [META_AI_JID]
-                }, { quoted: m });
-                await ctx.react('✅');
-            } catch (err) {
-                console.error('MetaAI add error:', err);
-                await ctx.reply('❌ Failed to mention Meta AI.');
+            const senderIsAdmin = await isSenderAdmin(sock, m.key.remoteJid, m.key.participant, metadata);
+            const botIsAdmin = await isBotAdmin(sock, m.key.remoteJid, metadata);
+
+            if (!senderIsAdmin) {
+                return ctx.reply('❌ Only group admins can use this command.');
             }
-            return;
-        }
+            if (!botIsAdmin) {
+                return ctx.reply('❌ I need to be an admin to add / remove Meta AI.');
+            }
 
-        if (action === 'kick') {
-            try {
-                // Ensure the bot is admin before trying to kick
-                const isBot = await isBotAdmin(sock, jid);
-                if (!isBot) {
-                    return ctx.reply('❌ I need to be an admin to kick Meta AI.');
+            const presentInfo = await findMetaAiInGroup(sock, m.key.remoteJid, metadata);
+
+            if (sub === 'add') {
+                if (presentInfo.present) {
+                    return ctx.reply('Meta AI is already in this group.');
                 }
 
-                await sock.groupParticipantsUpdate(jid, [META_AI_JID], 'remove');
-                await ctx.reply('✅ *Meta AI Kicked*\n\nMeta AI has been removed from the group.');
-            } catch (err) {
-                console.error('MetaAI kick error:', err);
-                await ctx.reply(`❌ Failed to kick Meta AI.\n_Error: ${err.message}_\n\n*Note:* Meta AI might not actually be a member, or WhatsApp blocked the action.`);
-            }
-            return;
-        }
+                const add = await tryAddMetaAi(sock, m.key.remoteJid);
+                if (!add.ok) {
+                    const detail = add.status
+                        ? `status ${add.status}`
+                        : (add.error && add.error.message) || 'unknown error';
+                    return ctx.reply(`❌ Meta AI could not be added (${detail}).\n\nTip: Meta AI must be available on this account/region.`);
+                }
 
-        return ctx.reply(`❌ Invalid option. Use \`${prefix}metaai add\` or \`${prefix}metaai kick\`.`);
+                await new Promise((r) => setTimeout(r, 1200));
+                let verified = false;
+                try {
+                    const again = await findMetaAiInGroup(sock, m.key.remoteJid);
+                    verified = again.present;
+                } catch (_) {}
+
+                return ctx.reply(verified
+                    ? '✅ Meta AI has been added to this group.'
+                    : '✅ Meta AI was invited. It may already be active even if group info has not refreshed yet.');
+            }
+
+            // kick
+            const remove = await tryRemoveMetaAi(sock, m.key.remoteJid, presentInfo);
+            if (!remove.ok) {
+                const detail = remove.status
+                    ? `status ${remove.status}`
+                    : (remove.error && remove.error.message) || 'unknown error';
+                return ctx.reply(`❌ Meta AI could not be removed (${detail}).\n\n${presentInfo.present
+                    ? 'Detected in group metadata, but WhatsApp rejected the remove.'
+                    : 'Not clearly listed in group metadata; tried known Meta AI IDs anyway.'}`);
+            }
+
+            await new Promise((r) => setTimeout(r, 800));
+            let stillThere = false;
+            try {
+                const again = await findMetaAiInGroup(sock, m.key.remoteJid);
+                stillThere = again.present;
+            } catch (_) {}
+
+            return ctx.reply(stillThere
+                ? '✅ Remove request sent. Meta AI may still appear until group info refreshes.'
+                : '✅ Meta AI has been removed from this group.');
+
+        } catch (err) {
+            console.error('MetaAI error:', err);
+            await ctx.reply(`❌ Failed to run Meta AI command.\n_Error: ${err.message}_`);
+        }
     }
 };
+
+function participantIds(p) {
+    if (!p || typeof p !== 'object') return [];
+    return [p.id, p.jid, p.phoneNumber, p.lid, p.username]
+        .filter((v) => typeof v === 'string' && v.length > 0);
+}
+
+function isMetaAiParticipant(p) {
+    const ids = participantIds(p);
+    for (const id of ids) {
+        const lower = id.toLowerCase();
+        if (id.endsWith('@bot')) return true;
+        if (lower.includes('meta ai') || lower === 'metaai' || lower.includes('meta_ai')) return true;
+        const user = id.split('@')[0].split(':')[0];
+        if (META_AI_USER_IDS.has(user)) return true;
+    }
+    return false;
+}
+
+async function findMetaAiInGroup(sock, groupJid, cachedMetadata) {
+    const metadata = cachedMetadata || await getGroupMetadata(sock, groupJid);
+    const participants = metadata.participants || [];
+    const hits = participants.filter(isMetaAiParticipant);
+    return {
+        present: hits.length > 0,
+        participants: hits,
+        participant: hits[0] || null,
+        allIds: participants.flatMap(participantIds),
+        metadata
+    };
+}
+
+async function tryAddMetaAi(sock, groupJid) {
+    let lastStatus = null;
+    let lastResult = null;
+    let lastError = null;
+
+    for (const jid of META_AI_JIDS) {
+        try {
+            const result = await sock.groupParticipantsUpdate(groupJid, [jid], 'add');
+            lastResult = result;
+            const status = result?.[0]?.status != null ? String(result[0].status) : null;
+            lastStatus = status;
+            if (!status || status === '200') {
+                return { ok: true, jid, status: status || '200', result };
+            }
+        } catch (err) {
+            lastError = err;
+        }
+    }
+
+    return { ok: false, status: lastStatus, result: lastResult, error: lastError };
+}
+
+async function tryRemoveMetaAi(sock, groupJid, presentInfo) {
+    const candidates = [];
+    const seen = new Set();
+
+    const push = (jid) => {
+        if (!jid || typeof jid !== 'string') return;
+        if (seen.has(jid)) return;
+        seen.add(jid);
+        candidates.push(jid);
+    };
+
+    for (const p of presentInfo.participants || []) {
+        for (const id of participantIds(p)) push(id);
+    }
+    for (const jid of META_AI_JIDS) push(jid);
+
+    let lastStatus = null;
+    let lastResult = null;
+    let lastError = null;
+    const attempts = [];
+
+    for (const jid of candidates) {
+        try {
+            const result = await sock.groupParticipantsUpdate(groupJid, [jid], 'remove');
+            lastResult = result;
+            const status = result?.[0]?.status != null ? String(result[0].status) : null;
+            lastStatus = status;
+            attempts.push({ jid, status });
+            if (!status || status === '200') {
+                return { ok: true, jid, status: status || '200', result, attempts };
+            }
+        } catch (err) {
+            lastError = err;
+            attempts.push({ jid, error: err.message });
+        }
+    }
+
+    return { ok: false, status: lastStatus, result: lastResult, error: lastError, attempts };
+}
