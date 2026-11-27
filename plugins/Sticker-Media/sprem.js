@@ -10,18 +10,18 @@ export default {
     usage: 'sprem (reply to media)',
 
     async execute(sock, m, args, ctx) {
-        await ctx.react('⏳');
+        
 
         const media = await ctx.getMedia();
 
         if (!media) {
-            await ctx.react('❌');
+           
             const prefix = getPrefix();
             return ctx.reply(`❌ *Premium Sticker*\n\nReply to an image, video, sticker, or GIF with \`${prefix}sprem\`.`);
         }
 
         if (!media.isImage && !media.isVideo && !media.isSticker) {
-            await ctx.react('❌');
+            
             return ctx.reply('❌ Only images, videos, and stickers can be converted.');
         }
 
@@ -43,7 +43,7 @@ export default {
             await ctx.react('✅');
         } catch (err) {
             console.error('Sprem error:', err);
-            await ctx.react('❌');
+      
             await ctx.reply(`❌ Failed to create premium sticker.\n_Error: ${err.message}_`);
         }
     }
